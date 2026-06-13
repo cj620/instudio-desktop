@@ -110,8 +110,9 @@ describe('AgentLoop', () => {
     expect(status).toBe('failed')
     expect(failed).toMatchObject({
       kind: 'turn_failed',
-      message: 'model stream exploded'
+      message: expect.stringContaining('model stream exploded')
     })
+    expect(failed?.kind === 'turn_failed' ? failed.message : '').toContain('[Kun turn failed]')
   })
 
   it('fails the turn when the model stream yields an error chunk', async () => {
@@ -881,28 +882,46 @@ describe('AgentLoop', () => {
         return { output: { done: true } }
       }
     })
-    const h = makeHarness(makeFakeModel([
-      {
-        kind: 'tool_call_complete',
-        callId: 'call_streamer',
-        toolName: 'streamer',
-        arguments: {}
-      },
-      { kind: 'completed', stopReason: 'tool_calls' },
-      { kind: 'completed', stopReason: 'stop' }
-    ]), { tools: [streamingTool] })
+    let calls = 0
+    const h = makeHarness({
+      provider: 'streaming-tool',
+      model: 'streaming-tool',
+      async *stream(): AsyncIterable<ModelStreamChunk> {
+        calls += 1
+        if (calls === 1) {
+          yield {
+            kind: 'tool_call_complete',
+            callId: 'call_streamer',
+            toolName: 'streamer',
+            arguments: {}
+          }
+          yield { kind: 'completed', stopReason: 'tool_calls' }
+          return
+        }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }, { tools: [streamingTool] })
     await bootstrapThread(h)
     const status = await h.loop.runTurn(h.threadId, h.turnId)
     expect(status).toBe('completed')
     const events = await h.sessionStore.loadEventsSince(h.threadId, 0)
-    expect(events.some((event) => event.kind === 'item_updated')).toBe(true)
     const partialUpdate = events.find(
       (event) =>
-        event.kind === 'item_updated' &&
+        (event.kind === 'item_created' || event.kind === 'item_updated') &&
         event.item.kind === 'tool_result' &&
+        event.item.status === 'running' &&
         (event.item.output as { partial?: string }).partial === 'hello'
     )
     expect(partialUpdate).toBeDefined()
+    const thread = await h.threadStore.get(h.threadId)
+    const finalResult = thread?.turns
+      .flatMap((turn) => turn.items)
+      .find((item) => item.kind === 'tool_result' && item.callId === 'call_streamer')
+    expect(finalResult).toMatchObject({
+      kind: 'tool_result',
+      status: 'completed',
+      output: { done: true }
+    })
   })
 
   it('waits for GUI user input tool responses and resumes the turn', async () => {

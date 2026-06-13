@@ -73,6 +73,7 @@ import { shellRuntimeInstruction } from '../adapters/tool/builtin-tool-utils.js'
 
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
 const MAX_PARALLEL_TOOL_CALLS = 3
+const MAX_TURN_MODEL_STEPS = 64
 const DEFAULT_COMPACTION_SUMMARY_TIMEOUT_MS = 15_000
 const DEFAULT_COMPACTION_SUMMARY_MAX_TOKENS = 1_200
 const DEFAULT_COMPACTION_SUMMARY_INPUT_MAX_BYTES = 96 * 1024
@@ -528,6 +529,30 @@ export class AgentLoop {
   ): Promise<'completed' | 'failed' | 'aborted'> {
     for (let step = 0; ; step += 1) {
       if (signal.aborted) return 'aborted'
+      if (step >= MAX_TURN_MODEL_STEPS) {
+        const message =
+          `Turn stopped after ${MAX_TURN_MODEL_STEPS} model steps without reaching a final response.`
+        await this.opts.events.record({
+          kind: 'error',
+          threadId,
+          turnId,
+          message,
+          code: 'turn_step_limit_exceeded',
+          severity: 'error'
+        })
+        await this.opts.turns.applyItem(
+          threadId,
+          makeErrorItem({
+            id: this.opts.ids.next('item_error'),
+            turnId,
+            threadId,
+            message,
+            code: 'turn_step_limit_exceeded',
+            severity: 'error'
+          })
+        )
+        return 'failed'
+      }
       await this.drainSteering(threadId, turnId, signal)
       const stepResult = await this.modelStep(threadId, turnId, signal, step)
       if (stepResult === 'stop') return 'completed'
@@ -999,6 +1024,7 @@ export class AgentLoop {
             signal
           })
           if (dispatched === 'aborted') return 'aborted'
+          if (dispatched === 'all_suppressed') return 'stop'
           return 'continue'
         }
         const message = `Model did not call the required \`${request.requiredToolName}\` tool for this GUI plan turn.`
@@ -1073,6 +1099,7 @@ export class AgentLoop {
       signal
     })
     if (dispatched === 'aborted') return 'aborted'
+    if (dispatched === 'all_suppressed') return 'stop'
     return 'continue'
   }
 
@@ -1091,9 +1118,10 @@ export class AgentLoop {
     approvalPolicy: ToolHostContext['approvalPolicy']
     sandboxMode: NonNullable<ToolHostContext['sandboxMode']>
     signal: AbortSignal
-  }): Promise<'continue' | 'aborted'> {
+  }): Promise<'continue' | 'aborted' | 'all_suppressed'> {
     const context = this.createToolContext(input)
     let index = 0
+    let executedAny = false
 
     while (index < input.calls.length) {
       if (input.signal.aborted) return 'aborted'
@@ -1120,6 +1148,7 @@ export class AgentLoop {
           call,
           context
         })
+        executedAny = true
         await this.persistToolCallResult(input.threadId, input.turnId, call, result)
         index += 1
         continue
@@ -1155,6 +1184,7 @@ export class AgentLoop {
           })
         )
       )
+      executedAny = true
       for (let batchIndex = 0; batchIndex < batch.length; batchIndex += 1) {
         const result = settled[batchIndex]
         const batchCall = batch[batchIndex]
@@ -1173,7 +1203,7 @@ export class AgentLoop {
       }
     }
 
-    return 'continue'
+    return executedAny ? 'continue' : 'all_suppressed'
   }
 
   private isParallelSafeToolCall(
