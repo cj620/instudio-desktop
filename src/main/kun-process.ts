@@ -487,7 +487,11 @@ async function skillCapabilityConfigForRuntime(
   ])
   return {
     ...existing,
-    enabled: existing.enabled === false ? false : roots.length > 0 || existing.enabled === true,
+    // Auto-enable once we discover skill roots. There is no user-facing skills
+    // enable toggle, so a persisted `enabled: false` is only ever the schema
+    // default leaking onto disk — it must not permanently suppress discovered
+    // skills. An explicit `true` still forces on even with no roots.
+    enabled: roots.length > 0 || existing.enabled === true,
     roots,
     legacySkillMd: existing.legacySkillMd === false ? false : true
   }

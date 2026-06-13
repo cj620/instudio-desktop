@@ -24,7 +24,8 @@ import {
   KUN_THREAD_TURNS_TEMPLATE,
   KUN_THREAD_TEMPLATE,
   KUN_USER_INPUT_TEMPLATE,
-  KUN_USAGE_TEMPLATE
+  KUN_USAGE_TEMPLATE,
+  KUN_DEBUG_LLM_ROUNDS_TEMPLATE
 } from '../../shared/kun-endpoints'
 import {
   IMAGE_GENERATION_PROTOCOLS,
@@ -148,7 +149,8 @@ const ENDPOINTS: readonly EndpointTemplate[] = [
   compileEndpoint(KUN_APPROVAL_TEMPLATE, ['POST']),
   compileEndpoint(KUN_USER_INPUT_TEMPLATE, ['POST']),
   compileEndpoint(KUN_SESSION_RESUME_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_USAGE_TEMPLATE, ['GET'])
+  compileEndpoint(KUN_USAGE_TEMPLATE, ['GET']),
+  compileEndpoint(KUN_DEBUG_LLM_ROUNDS_TEMPLATE, ['GET'])
 ]
 
 function isAllowedRuntimeRequest(value: { path: string; method?: string }): boolean {

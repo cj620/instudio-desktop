@@ -471,8 +471,6 @@ export function Workbench(): ReactElement {
   const draftByThread = useRef<Record<string, string>>({})
   const prevThreadId = useRef<string | null>(null)
   const inputRef = useRef('')
-  const dismissedSddDraftWorkspacesRef = useRef<Set<string>>(new Set())
-  const restoredSddDraftWorkspaceRef = useRef('')
   const sddUpgradeInFlightRef = useRef(false)
   const sddUpgradeTargetRef = useRef<PendingSddPlanTarget | null>(null)
   const sddTitleSyncTimerRef = useRef<number | null>(null)
@@ -1199,7 +1197,6 @@ export function Workbench(): ReactElement {
       lastSavedContent: options.lastSavedContent,
       saveStatus: options.saveStatus
     })
-    dismissedSddDraftWorkspacesRef.current.delete(normalizeWorkspaceRoot(draft.workspaceRoot))
     // Self-heal the unit's conversation record (covers turns that completed
     // while the draft was closed or in another thread).
     void refreshSddChatTranscriptFromProvider(draft)
@@ -1223,7 +1220,6 @@ export function Workbench(): ReactElement {
   const dismissActiveSddDraft = (options: { closeAssistant?: boolean } = {}): void => {
     const draft = useSddDraftStore.getState().activeDraft
     if (draft) {
-      dismissedSddDraftWorkspacesRef.current.add(normalizeWorkspaceRoot(draft.workspaceRoot))
       void saveActiveSddDraftToDisk()
       useSddDraftStore.getState().clearActiveDraft()
     }
@@ -1365,38 +1361,13 @@ export function Workbench(): ReactElement {
     return history.find((draft) => draft.chatThreadIds?.includes(normalizedThreadId)) ?? null
   }
 
-  useEffect(() => {
-    if (activeSddDraft) return
-    const activeCodeWorkspace = activeThreadId
-      ? normalizeWorkspaceRoot(codeThreads.find((thread) => thread.id === activeThreadId)?.workspace ?? '')
-      : ''
-    const targetWorkspace = activeCodeWorkspace || normalizeWorkspaceRoot(workspaceRoot)
-    if (!targetWorkspace || dismissedSddDraftWorkspacesRef.current.has(targetWorkspace)) return
-    if (restoredSddDraftWorkspaceRef.current === targetWorkspace) return
-
-    let cancelled = false
-    restoredSddDraftWorkspaceRef.current = targetWorkspace
-    void restoreRememberedSddDraft({
-      workspaceRoot: targetWorkspace,
-      readWorkspaceFile: window.kunGui.readWorkspaceFile
-    }).then((restored) => {
-      if (cancelled || restored.kind !== 'restored') return
-      if (useSddDraftStore.getState().activeDraft) return
-      useSddDraftStore.getState().setActiveDraft(restored.draft, restored.content, {
-        lastSavedContent: restored.lastSavedContent,
-        saveStatus: restored.saveStatus
-      })
-      dismissedSddDraftWorkspacesRef.current.delete(targetWorkspace)
-      setInput('')
-      setMode('agent')
-      setRoute('chat')
-      setRightPanelMode(null)
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeSddDraft, activeThreadId, codeThreads, setRightPanelMode, setRoute, workspaceRoot])
+  // NOTE: We intentionally do NOT auto-restore a remembered requirement draft
+  // on mount / workspace switch. Opening the app (or switching the working
+  // directory) should land on a clean new conversation in the selected
+  // directory — not silently reopen the last requirement. Remembered drafts
+  // stay reachable from the sidebar (需求草稿) and the "新建需求" restore-or-create
+  // flow; they just no longer hijack startup. See the workspace picker below
+  // the composer for switching directories.
 
   const sendSddAssistantPrompt = async (value: string): Promise<void> => {
     const v = value.trim()

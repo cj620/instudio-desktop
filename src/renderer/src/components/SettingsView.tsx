@@ -53,6 +53,7 @@ import {
   GeneralSettingsSection,
   ImageGenerationSettingsSection,
   KeyboardShortcutsSettingsSection,
+  LlmDebugSettingsSection,
   MediaGenerationSettingsSection,
   ProvidersSettingsSection,
   SpeechToTextSettingsSection,
@@ -60,7 +61,7 @@ import {
   WriteSettingsSection
 } from './settings-sections'
 
-type SettingsCategory = 'general' | 'providers' | 'write' | 'imageGeneration' | 'mediaGeneration' | 'speechToText' | 'agents' | 'permissions' | 'shortcuts' | 'easterEgg' | 'claw' | 'updates'
+type SettingsCategory = 'general' | 'providers' | 'write' | 'imageGeneration' | 'mediaGeneration' | 'speechToText' | 'agents' | 'permissions' | 'shortcuts' | 'easterEgg' | 'claw' | 'updates' | 'debug'
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 type SettingsPatch = AppSettingsPatch
 type SkillRootOption = {
@@ -916,6 +917,7 @@ export function SettingsView(): ReactElement {
           {category === 'easterEgg' ? <EasterEggSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'claw' ? <ClawSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'updates' ? <UpdatesSettingsSection ctx={settingsSectionContext} /> : null}
+          {category === 'debug' ? <LlmDebugSettingsSection ctx={settingsSectionContext} /> : null}
         </div>
       </div>
       {saveStatus === 'error' && saveError ? (

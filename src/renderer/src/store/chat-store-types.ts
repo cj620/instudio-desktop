@@ -214,6 +214,7 @@ export type ChatState = {
   boot: () => Promise<void>
   probeRuntime: (mode?: 'user' | 'background', options?: { restart?: boolean }) => Promise<void>
   chooseWorkspace: (options?: { createThreadAfter?: boolean; selectThreadAfter?: boolean }) => Promise<string | null>
+  selectWorkspaceRoot: (workspaceRoot: string) => Promise<string | null>
   clearWorkspace: () => Promise<void>
   deleteWorkspace: (workspacePath: string) => Promise<void>
   refreshThreads: () => Promise<void>

@@ -73,6 +73,7 @@ import {
   useThreadUsageState
 } from '../../hooks/use-thread-usage'
 import { GitBranchPicker } from './GitBranchPicker'
+import { WorkspaceProjectPicker } from './WorkspaceProjectPicker'
 import {
   FloatingComposerModelPicker,
   type ComposerReasoningEffort
@@ -2128,6 +2129,9 @@ export function FloatingComposer({
       {compact ? null : (
         <div className="ds-composer-footer mt-1 flex min-h-7 flex-wrap items-center justify-between gap-x-2.5 gap-y-1.5 px-3">
           <div className="ds-composer-footer-left flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            {route === 'chat' ? (
+              <WorkspaceProjectPicker currentWorkspaceRoot={effectiveWorkspaceRoot} />
+            ) : null}
             <GitBranchPicker workspaceRoot={effectiveWorkspaceRoot} />
             {showThreadUsageFooter ? (
               <div
@@ -2178,7 +2182,7 @@ export function FloatingComposer({
                     <span className="ds-composer-usage-cache-separator text-ds-faint">·</span>
                     <span className="ds-composer-usage-cache shrink-0 truncate tabular-nums">
                       {t('sessionUsageCache', {
-                        cache: formatPercent(threadUsage.cacheHitRate)
+                        cache: formatPercent(threadUsage.lastTurnCacheHitRate ?? threadUsage.cacheHitRate)
                       })}
                     </span>
                     <span className="ds-composer-usage-turns-separator text-ds-faint">·</span>

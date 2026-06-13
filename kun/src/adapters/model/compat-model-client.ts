@@ -2,6 +2,7 @@ import type { ModelClient, ModelRequest, ModelStreamChunk, ModelToolSpec } from 
 import type { TurnItem } from '../../contracts/items.js'
 import { emptyUsageSnapshot, type UsageSnapshot } from '../../contracts/usage.js'
 import type { ModelCapabilityMetadata } from '../../contracts/capabilities.js'
+import type { LlmDebugRound, LlmDebugSink } from '../../services/llm-debug-recorder.js'
 import { estimateDeepseekCost } from './deepseek-pricing.js'
 import { estimateMiniMaxCost } from './minimax-pricing.js'
 import { isToolResultBridgeItem, repairModelHistoryItems } from '../../domain/model-history-repair.js'
@@ -22,7 +23,7 @@ import {
  * completions remains the default, while custom providers can opt into
  * OpenAI Responses or Anthropic Messages request/response shapes.
  */
-export type DeepseekCompatConfig = {
+export type CompatModelClientConfig = {
   baseUrl: string
   apiKey: string
   model: string
@@ -40,6 +41,8 @@ export type DeepseekCompatConfig = {
   streamIdleTimeoutMs?: number
   /** Optional model capability resolver used for provider-specific reasoning translation. */
   modelCapabilities?: (model: string) => ModelCapabilityMetadata
+  /** Optional troubleshooting sink that captures each request body + raw output. */
+  debugSink?: LlmDebugSink
 }
 
 type ChatMessage = {
@@ -139,22 +142,23 @@ const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 45_000
 const DEFAULT_MESSAGES_MAX_TOKENS = 4096
 
 /**
- * DeepSeek-compatible model client.
+ * Multi-provider HTTP model client.
  *
- * This adapter focuses on the streaming chat completions shape used
- * by the GUI today. It supports tool calls, cache hit/miss counters
- * (when the provider reports them), and abort-signal cancellation.
- * The client is deliberately small so the rest of the runtime can be
- * built around the `ModelClient` port.
+ * Speaks the streaming chat completions shape by default, and can switch
+ * to OpenAI Responses or Anthropic Messages request/response shapes per
+ * provider via `endpointFormat`. It supports tool calls, cache hit/miss
+ * counters (when the provider reports them), and abort-signal
+ * cancellation. The client is deliberately small so the rest of the
+ * runtime can be built around the `ModelClient` port.
  */
-export class DeepseekCompatModelClient implements ModelClient {
-  readonly provider = 'deepseek-compat'
+export class CompatModelClient implements ModelClient {
+  readonly provider = 'compat'
   readonly model: string
 
-  private readonly config: DeepseekCompatConfig
+  private readonly config: CompatModelClientConfig
   private readonly fetchImpl: typeof fetch
 
-  constructor(config: DeepseekCompatConfig) {
+  constructor(config: CompatModelClientConfig) {
     this.config = config
     this.model = config.model
     this.fetchImpl = config.fetchImpl ?? fetch
@@ -165,7 +169,65 @@ export class DeepseekCompatModelClient implements ModelClient {
    * of the kinds defined by `ModelStreamChunk`. The stream respects
    * the request's `abortSignal` between chunks.
    */
+  /**
+   * Public entry point. When a `debugSink` is configured, captures the
+   * literal request body and accumulates the raw output for the
+   * troubleshooting view; otherwise forwards with zero overhead.
+   */
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+    const sink = this.config.debugSink
+    if (!sink) {
+      yield* this.streamInner(request, null)
+      return
+    }
+    const round = sink.start({
+      threadId: request.threadId,
+      turnId: request.turnId,
+      provider: this.provider,
+      model: request.model?.trim() || this.config.model
+    })
+    try {
+      for await (const chunk of this.streamInner(request, round)) {
+        this.captureChunk(round, chunk)
+        yield chunk
+      }
+    } finally {
+      sink.finish(round)
+    }
+  }
+
+  private captureChunk(round: LlmDebugRound, chunk: ModelStreamChunk): void {
+    const out = round.output
+    switch (chunk.kind) {
+      case 'assistant_text_delta':
+        out.text += chunk.text
+        break
+      case 'assistant_reasoning_delta':
+        out.reasoning += chunk.text
+        break
+      case 'tool_call_complete':
+        out.toolCalls.push({
+          callId: chunk.callId,
+          toolName: chunk.toolName,
+          arguments: chunk.arguments
+        })
+        break
+      case 'usage':
+        out.usage = chunk.usage
+        break
+      case 'completed':
+        out.stopReason = chunk.stopReason
+        break
+      case 'error':
+        out.error = chunk.message
+        break
+    }
+  }
+
+  private async *streamInner(
+    request: ModelRequest,
+    round: LlmDebugRound | null
+  ): AsyncIterable<ModelStreamChunk> {
     if (request.abortSignal.aborted) {
       yield { kind: 'error', message: 'request was aborted before start' }
       return
@@ -183,6 +245,10 @@ export class DeepseekCompatModelClient implements ModelClient {
     const stream = request.stream ?? !this.config.nonStreaming
     const requestModel = request.model?.trim() || this.config.model
     const body = this.buildRequestBody(request, stream, { endpointFormat })
+    if (round) {
+      round.requestBody = body
+      round.url = redactUrlForLog(url)
+    }
     const headers = this.buildHeaders(stream, endpointFormat)
     const result = await this.postChatCompletion(url, headers, body, request.abortSignal)
     if (result.kind === 'error') {
@@ -194,6 +260,7 @@ export class DeepseekCompatModelClient implements ModelClient {
       const text = await response.text()
       if (usesChatCompletionsShape(endpointFormat) && shouldRetryWithoutStreamUsage(response.status, text, body)) {
         const retryBody = this.buildRequestBody(request, stream, { endpointFormat, includeStreamUsage: false })
+        if (round) round.requestBody = retryBody
         const retry = await this.postChatCompletion(url, headers, retryBody, request.abortSignal)
         if (retry.kind === 'error') {
           yield { kind: 'error', message: retry.message }

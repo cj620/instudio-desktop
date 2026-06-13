@@ -107,6 +107,13 @@ describe('app-ipc-schemas', () => {
     }).path).toBe('/v1/threads/thr_1/review')
   })
 
+  it('accepts the LLM debug rounds endpoint', () => {
+    expect(runtimeRequestPayloadSchema.parse({
+      path: '/v1/debug/llm-rounds',
+      method: 'GET'
+    }).path).toBe('/v1/debug/llm-rounds')
+  })
+
   it('rejects runtime request paths outside the modeled Kun API surface', () => {
     expect(() =>
       runtimeRequestPayloadSchema.parse({

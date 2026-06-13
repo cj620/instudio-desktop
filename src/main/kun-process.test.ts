@@ -593,6 +593,34 @@ describe('syncGuiManagedKunConfig', () => {
     ]))
   })
 
+  it('re-enables skills when roots are discovered despite a persisted enabled:false', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    // Simulate a config whose skills capability was persisted with the schema
+    // default enabled:false (there is no user-facing disable toggle).
+    writeFileSync(configPath, JSON.stringify({
+      capabilities: { skills: { enabled: false, roots: [], legacySkillMd: true } }
+    }), 'utf8')
+    const module = await import('./kun-process')
+    const settings = createSettings('/tmp/fake-kun-child.js')
+    const workspaceRoot = join(tempRoot, 'workspace')
+    settings.workspaceRoot = workspaceRoot
+    mkdirSync(join(workspaceRoot, '.codex', 'skills'), { recursive: true })
+
+    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+      scheduleMcp: {
+        settings,
+        launch: { appPath: '/tmp/deepseek-gui-test-app', execPath: '/tmp/electron', isPackaged: false }
+      }
+    })
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.skills.enabled).toBe(true)
+    expect(parsed.capabilities.skills.roots).toEqual(expect.arrayContaining([
+      join(workspaceRoot, '.codex', 'skills')
+    ]))
+  })
+
   it('writes GUI-managed MCP search settings without removing existing servers', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
