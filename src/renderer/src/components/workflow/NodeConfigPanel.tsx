@@ -303,7 +303,7 @@ function VariablePicker({
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute right-0 top-9 z-50 flex max-h-[60vh] w-[260px] flex-col overflow-y-auto rounded-xl border border-ds-border bg-ds-bg p-1.5 shadow-xl">
+      <div className="absolute right-0 top-9 z-50 flex max-h-[60vh] w-[260px] flex-col overflow-y-auto rounded-xl border border-ds-border bg-ds-elevated p-1.5 shadow-[0_24px_70px_rgba(44,55,78,0.22)] backdrop-blur-xl dark:shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
         <p className="px-2 pb-1 pt-1 text-[10.5px] font-semibold uppercase tracking-wide text-ds-faint">
           {t('workflowVarCommon')}
         </p>
@@ -372,16 +372,24 @@ export function NodeConfigPanel({
   const [testOpen, setTestOpen] = useState(false)
   // Tracks the most recently focused text field so the variable picker can splice a token at its caret.
   const lastFocused = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
   // Drop the focus target when the selected node changes (the panel instance is reused).
   useEffect(() => {
     lastFocused.current = null
   }, [node?.id])
 
   const insertToken = (token: string): void => {
-    const el = lastFocused.current
     setPickerOpen(false)
-    // Bail if no field was focused or it was unmounted (e.g. after switching nodes).
-    if (!el || !el.isConnected) return
+    // Prefer the last-focused field; otherwise fall back to the node's primary text
+    // field (the first textarea, else the first text input) so a pick is never a no-op.
+    let el = lastFocused.current
+    if (!el || !el.isConnected) {
+      el =
+        panelRef.current?.querySelector<HTMLTextAreaElement>('textarea') ??
+        panelRef.current?.querySelector<HTMLInputElement>('input[type="text"]') ??
+        null
+    }
+    if (!el) return
     const start = el.selectionStart ?? el.value.length
     const end = el.selectionEnd ?? el.value.length
     const next = `${el.value.slice(0, start)}${token}${el.value.slice(end)}`
@@ -433,7 +441,7 @@ export function NodeConfigPanel({
   const providers = getModelProviderSettings(settings).providers
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={panelRef} className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-ds-border px-4 py-3">
         <h2 className="text-[13px] font-semibold text-ds-ink">
           {t(`workflowNode_${node.type}`)}
@@ -1914,7 +1922,7 @@ function TestNodeDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6" onClick={onClose}>
       <div
-        className="flex max-h-[80vh] w-[520px] flex-col overflow-hidden rounded-2xl border border-ds-border bg-ds-bg shadow-xl"
+        className="flex max-h-[80vh] w-[520px] flex-col overflow-hidden rounded-2xl border border-ds-border bg-ds-card shadow-xl"
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-ds-border px-5 py-3.5">

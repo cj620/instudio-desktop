@@ -62,7 +62,7 @@ export function WorkflowRunHistory({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6" onClick={onClose}>
       <div
-        className="flex h-[80vh] w-[860px] flex-col overflow-hidden rounded-2xl border border-ds-border bg-ds-bg shadow-xl"
+        className="flex h-[80vh] w-[860px] flex-col overflow-hidden rounded-2xl border border-ds-border bg-ds-card shadow-xl"
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-ds-border px-5 py-3.5">
