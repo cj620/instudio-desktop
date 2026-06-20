@@ -1268,7 +1268,15 @@ export const skillSaveFilePayloadSchema = z
   .object({
     rootPath: trimmedString(MAX_PATH_LENGTH),
     skillName: trimmedString(128),
-    content: z.string().max(MAX_SKILL_FILE_BYTES)
+    content: z.string().max(MAX_SKILL_FILE_BYTES),
+    manifestContent: z.string().max(MAX_SKILL_FILE_BYTES).optional()
+  })
+  .strict()
+
+export const skillGithubImportPayloadSchema = z
+  .object({
+    rootPath: trimmedString(MAX_PATH_LENGTH),
+    url: z.string().trim().min(1).max(MAX_URL_LENGTH)
   })
   .strict()
 
