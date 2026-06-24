@@ -1356,7 +1356,15 @@ export class AgentLoop {
       turnId,
       model,
       ...(thread?.providerId?.trim() ? { providerId: thread.providerId.trim() } : {}),
-      systemPrompt: this.opts.prefix.systemPrompt,
+      // Thread-level systemPrompt (primary-agent persona snapshot) is
+      // appended to the runtime base — same augment strategy as child agents
+      // (child-agent-executor) — so the agent keeps kun's tool/safety
+      // conventions and skill catalog instead of losing them to the persona.
+      // Empty/whitespace falls back to the immutable prefix verbatim so
+      // unbound threads keep the prompt-cache fingerprint.
+      systemPrompt: thread?.systemPrompt?.trim()
+        ? `${this.opts.prefix.systemPrompt}\n\n${thread.systemPrompt.trim()}`
+        : this.opts.prefix.systemPrompt,
       ...(planTurnActive ? { modeInstruction: PLAN_MODE_INSTRUCTION } : {}),
       ...(contextInstructions.length ? { contextInstructions } : {}),
       prefix: this.opts.prefix.fewShots,

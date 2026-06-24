@@ -458,7 +458,12 @@ export function mergeKunRuntimeSettings(
     modelProfiles: nextModelProfiles,
     memoryEnabled: patch?.memoryEnabled ?? current.memoryEnabled ?? false,
     computerUse: nextComputerUse,
-    quality: nextQuality
+    quality: nextQuality,
+    ...(patch?.subagents !== undefined
+      ? { subagents: patch.subagents }
+      : current.subagents !== undefined
+        ? { subagents: current.subagents }
+        : {})
   }
 }
 
@@ -700,7 +705,9 @@ function normalizeKunContextCompactionSettings(
       : defaults.summaryMode,
     summaryTimeoutMs: boundedPositiveInt(input?.summaryTimeoutMs, defaults.summaryTimeoutMs, 120_000),
     summaryMaxTokens: boundedPositiveInt(input?.summaryMaxTokens, defaults.summaryMaxTokens, 16_000),
-    summaryInputMaxBytes: boundedPositiveInt(input?.summaryInputMaxBytes, defaults.summaryInputMaxBytes, 8 * 1024 * 1024)
+    summaryInputMaxBytes: boundedPositiveInt(input?.summaryInputMaxBytes, defaults.summaryInputMaxBytes, 8 * 1024 * 1024),
+    ...(typeof input?.summaryModel === 'string' && input.summaryModel.trim() ? { summaryModel: input.summaryModel.trim() } : {}),
+    ...(typeof input?.summaryProviderId === 'string' && input.summaryProviderId.trim() ? { summaryProviderId: input.summaryProviderId.trim() } : {})
   }
 }
 

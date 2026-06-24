@@ -140,6 +140,9 @@ const ScheduleTasksView = lazy(() =>
 const WorkflowView = lazy(() =>
   import('./workflow/WorkflowView').then((module) => ({ default: module.WorkflowView }))
 )
+const SubagentsView = lazy(() =>
+  import('./subagents/SubagentsView').then((module) => ({ default: module.SubagentsView }))
+)
 const WorkflowRunPanel = lazy(() =>
   import('./workflow/WorkflowRunPanel').then((module) => ({ default: module.WorkflowRunPanel }))
 )
@@ -392,6 +395,7 @@ export function Workbench(): ReactElement {
     openClaw,
     openSchedule,
     openWorkflow,
+    openSubagents,
     chooseWorkspace,
     clawChannels,
     activeClawChannelId,
@@ -454,6 +458,7 @@ export function Workbench(): ReactElement {
       openClaw: s.openClaw,
       openSchedule: s.openSchedule,
       openWorkflow: s.openWorkflow,
+      openSubagents: s.openSubagents,
       chooseWorkspace: s.chooseWorkspace,
       clawChannels: s.clawChannels,
       activeClawChannelId: s.activeClawChannelId,
@@ -2228,19 +2233,26 @@ export function Workbench(): ReactElement {
     openWorkflow()
   }
 
+  const openSubagentsView = (): void => {
+    setConnectPhoneSidebarOpen(false)
+    openSubagents()
+  }
+
   const toggleConnectPhone = (): void => {
     if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
     openClaw()
     setConnectPhoneSidebarOpen((open) => !open)
   }
 
-  const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' | 'workflow' =
+  const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' | 'workflow' | 'subagents' =
     route === 'claw' || (route === 'plugins' && pluginHostRoute === 'claw')
       ? 'claw'
       : route === 'schedule'
         ? 'schedule'
       : route === 'workflow'
         ? 'workflow'
+      : route === 'subagents'
+        ? 'subagents'
       : route === 'write'
         ? 'write'
         : 'chat'
@@ -2561,6 +2573,7 @@ export function Workbench(): ReactElement {
               onWriteOpen={openWriteMode}
               onScheduleOpen={openScheduleView}
               onWorkflowOpen={openWorkflowView}
+              onSubagentsOpen={openSubagentsView}
             />
             )}
           </div>
@@ -2599,6 +2612,13 @@ export function Workbench(): ReactElement {
               leftSidebarCollapsed={leftSidebarCollapsed}
               onToggleLeftSidebar={toggleLeftSidebar}
               onOpenThread={openThread}
+            />
+          </Suspense>
+        ) : route === 'subagents' ? (
+          <Suspense fallback={<div className="h-full bg-ds-main" />}>
+            <SubagentsView
+              leftSidebarCollapsed={leftSidebarCollapsed}
+              onToggleLeftSidebar={toggleLeftSidebar}
             />
           </Suspense>
         ) : route === 'write' ? (

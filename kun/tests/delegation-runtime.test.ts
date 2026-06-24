@@ -146,15 +146,15 @@ describe('DelegationRuntime', () => {
     await expect(blocking).resolves.toMatchObject({ status: 'completed' })
   })
 
-  it('resolves a profile to model, preamble, and tool policy', async () => {
-    const seen: Array<{ model?: string; promptPreamble?: string; toolPolicy: string }> = []
+  it('resolves a profile to model, provider, preamble, and tool policy', async () => {
+    const seen: Array<{ model?: string; providerId?: string; promptPreamble?: string; toolPolicy: string }> = []
     const runtime = createRuntime({
       defaultProfile: 'reviewer',
       profiles: {
-        reviewer: { model: 'deepseek-v4-pro', promptPreamble: 'Review for bugs.', toolPolicy: 'readOnly' }
+        reviewer: { model: 'deepseek-v4-pro', providerId: 'minimax', promptPreamble: 'Review for bugs.', toolPolicy: 'readOnly' }
       },
       executor: async (input) => {
-        seen.push({ model: input.model, promptPreamble: input.promptPreamble, toolPolicy: input.toolPolicy })
+        seen.push({ model: input.model, providerId: input.providerId, promptPreamble: input.promptPreamble, toolPolicy: input.toolPolicy })
         return { summary: 'reviewed', toolInvocations: 2, prefixReused: true, inheritedHistoryItems: 0 }
       }
     })
@@ -164,15 +164,43 @@ describe('DelegationRuntime', () => {
       prompt: 'check the diff',
       signal: new AbortController().signal
     })
-    expect(seen[0]).toMatchObject({ model: 'deepseek-v4-pro', promptPreamble: 'Review for bugs.', toolPolicy: 'readOnly' })
+    expect(seen[0]).toMatchObject({ model: 'deepseek-v4-pro', providerId: 'minimax', promptPreamble: 'Review for bugs.', toolPolicy: 'readOnly' })
     expect(record).toMatchObject({
       profile: 'reviewer',
       toolPolicy: 'readOnly',
       model: 'deepseek-v4-pro',
+      providerId: 'minimax',
       toolInvocations: 2,
       prefixReused: true,
       inheritedHistoryItems: 0
     })
+  })
+
+  it('routes a child through an explicit providerId, overriding the profile, and surfaces it on the event', async () => {
+    const sessionStore = new InMemorySessionStore()
+    const seen: Array<{ providerId?: string }> = []
+    const runtime = createRuntime({
+      sessionStore,
+      defaultProfile: 'reviewer',
+      profiles: { reviewer: { providerId: 'minimax', toolPolicy: 'readOnly' } },
+      executor: async (input) => {
+        seen.push({ providerId: input.providerId })
+        return { summary: 'ok' }
+      }
+    })
+    // An explicit providerId on the call wins over the profile's providerId.
+    const record = await runtime.runChild({
+      parentThreadId: 'thr_1',
+      parentTurnId: 'turn_1',
+      prompt: 'go',
+      providerId: 'anthropic',
+      signal: new AbortController().signal
+    })
+    expect(seen[0]?.providerId).toBe('anthropic')
+    expect(record.providerId).toBe('anthropic')
+    const events = await sessionStore.loadEventsSince('thr_1', 0)
+    const completed = events.find((event) => event.child?.childId === record.id && event.child.childStatus === 'completed')
+    expect(completed?.child?.childProviderId).toBe('anthropic')
   })
 
   it('rejects an unknown profile name', async () => {
@@ -235,6 +263,69 @@ describe('DelegationRuntime', () => {
       cacheHitRate: 0.5,
       childToolPolicy: 'readOnly'
     })
+  })
+
+  it('returns immediately when detach=true and keeps executing in the background', async () => {
+    const start = deferred<void>()
+    const release = deferred<void>()
+    const runtime = createRuntime({
+      executor: async () => {
+        start.resolve()
+        await release.promise
+        return { summary: 'background done' }
+      }
+    })
+    const queued = await runtime.runChild({
+      parentThreadId: 'thr_detach',
+      parentTurnId: 'turn_detach',
+      prompt: 'long running task',
+      detach: true,
+      signal: new AbortController().signal
+    })
+    // Immediately returns with status 'queued' — synchronous runs would
+    // have returned 'completed' here.
+    expect(queued.status).toBe('queued')
+    // The executor actually runs in the background.
+    await start.promise
+    let diagnostics = await runtime.diagnostics('thr_detach')
+    expect(diagnostics.childRuns[0]?.status).toBe('running')
+    // Release the executor and wait for the record to flip to completed.
+    release.resolve()
+    await waitFor(async () => {
+      diagnostics = await runtime.diagnostics('thr_detach')
+      return diagnostics.childRuns[0]?.status === 'completed'
+    })
+    expect(diagnostics.childRuns[0]?.summary).toBe('background done')
+  })
+
+  it('abortChild signals a detached run and false-returns for unknown ids', async () => {
+    const start = deferred<void>()
+    const runtime = createRuntime({
+      executor: async ({ signal }) => {
+        start.resolve()
+        await new Promise<void>((resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')))
+        })
+        return { summary: 'unreachable' }
+      }
+    })
+    const queued = await runtime.runChild({
+      parentThreadId: 'thr_abort',
+      parentTurnId: 'turn_abort',
+      prompt: 'long task',
+      detach: true,
+      signal: new AbortController().signal
+    })
+    await start.promise
+    expect(runtime.abortChild(queued.id)).toBe(true)
+    await waitFor(async () => {
+      const diagnostics = await runtime.diagnostics('thr_abort')
+      return diagnostics.childRuns[0]?.status === 'aborted'
+    })
+    // After the run finished the controller is cleaned up via .finally.
+    // Poll because the cleanup runs in a microtask after the run resolves.
+    await waitFor(() => runtime.abortChild(queued.id) === false)
+    expect(runtime.abortChild('child_unknown')).toBe(false)
   })
 
   it('aggregates child runs by label and model for dashboards', async () => {
@@ -301,7 +392,7 @@ describe('DelegationRuntime', () => {
     maxChildRuns?: number
     defaultToolPolicy?: 'readOnly' | 'inherit'
     defaultProfile?: string
-    profiles?: Record<string, { model?: string; promptPreamble?: string; toolPolicy?: 'readOnly' | 'inherit' }>
+    profiles?: Record<string, { model?: string; providerId?: string; promptPreamble?: string; toolPolicy?: 'readOnly' | 'inherit' }>
     sessionStore?: InMemorySessionStore
     executor?: ConstructorParameters<typeof DelegationRuntime>[0]['executor']
     recordExternalUsage?: ConstructorParameters<typeof DelegationRuntime>[0]['recordExternalUsage']

@@ -91,6 +91,7 @@ import {
   FloatingComposerModelPicker,
   type ComposerReasoningEffort
 } from './FloatingComposerModelPicker'
+import { FloatingComposerAgentPicker } from './FloatingComposerAgentPicker'
 import {
   FloatingComposerQueuedMessages,
   type QueuedComposerMessage
@@ -2261,6 +2262,9 @@ export function FloatingComposer({
                   onComposerReasoningEffortChange={onComposerReasoningEffortChange}
                   onConfigureProviders={onConfigureProviders}
                 />
+              )}
+              {hideModelPicker ? null : (
+                <FloatingComposerAgentPicker compact={compact} disabled={!canChangeModel} />
               )}
               {showVoiceDictation ? (
                 <button
