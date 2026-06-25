@@ -2,11 +2,14 @@ import type { ReactElement } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { UiPluginFigureSlot } from '@shared/ui-plugin'
 import { useUiPluginFigure } from '../../store/ui-plugin-store'
-import kunLogo from '../../../../asset/img/kun_bird.png'
-import kunSurfFigure from '../../../../asset/img/kun_surf.png'
-import kunGreetFigure from '../../../../asset/img/kun_greet.png'
-import kunSleepFigure from '../../../../asset/img/kun_sleep.png'
-import kunSitFigure from '../../../../asset/img/kun_sit.png'
+// 临时方案:默认形象统一改用小元幽灵静态图(kun.png)。旧蓝鸟多姿态美术(kun_bird/greet/sleep/sit/surf.png)
+// 仍保留在 asset/img 下,等小元的多姿态素材就绪后,把下面五个别名换回对应的姿态图即可恢复动画。
+import kunGhostFigure from '../../../../asset/img/kun.png'
+const kunLogo = kunGhostFigure
+const kunSurfFigure = kunGhostFigure
+const kunGreetFigure = kunGhostFigure
+const kunSleepFigure = kunGhostFigure
+const kunSitFigure = kunGhostFigure
 import ikunFigure from '../../../../asset/img/ikun.png'
 import ikunRunFigure from '../../../../asset/img/ikun_run.png'
 import ikunBobaFigure from '../../../../asset/img/ikun_boba.png'

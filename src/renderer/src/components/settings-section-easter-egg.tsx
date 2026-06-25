@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import { BookOpen, FolderPlus, Palette, Trash2 } from 'lucide-react'
 import { UI_MODE_DEFAULT, UI_MODE_RETROMA } from '../lib/ui-mode'
 import { useUiPluginStore } from '../store/ui-plugin-store'
-import kunBirdFigure from '../../../asset/img/kun_bird.png'
+// 默认形象临时使用小元幽灵静态图(kun.png);旧蓝鸟见 AnimatedWorkLogo.tsx 的说明
+import kunDefaultFigure from '../../../asset/img/kun.png'
 import { SettingsCard, SettingRow } from './settings-controls'
 
 type ModeCard = {
@@ -140,7 +141,7 @@ export function EasterEggSettingsSection({ ctx }: { ctx: Record<string, any> }):
       mode: UI_MODE_DEFAULT,
       title: t('uiModeDefaultTitle'),
       subtitle: t('uiModeDefaultSubtitle'),
-      preview: kunBirdFigure,
+      preview: kunDefaultFigure,
       removable: false
     }
   ]

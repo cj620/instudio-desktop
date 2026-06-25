@@ -1092,7 +1092,7 @@
   "uiModeWorkshopTitle": "Mascot modes",
   "uiModeWorkshopDesc": "Pick the workspace mascot pack. The built-in iKun mode is itself a pre-installed UI plugin example — build and install your own packs with the developer guide (declarative image packs, no executable code).",
   "uiModeDefaultTitle": "Default Xiaoyuan",
-  "uiModeDefaultSubtitle": "The little blue bird",
+  "uiModeDefaultSubtitle": "The little Xiaoyuan ghost",
   "uiPaletteRetromaOn": "Retroma palette on — click to use default palette",
   "uiPaletteRetromaOff": "Switch to Retroma parchment palette",
   "uiPluginInstall": "Install plugin folder…",

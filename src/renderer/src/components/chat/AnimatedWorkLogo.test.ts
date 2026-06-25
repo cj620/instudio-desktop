@@ -319,9 +319,9 @@ describe('AnimatedWorkLogo', () => {
     const macIcon = await readFile(new URL('../../../../asset/img/kun_mac.png', import.meta.url))
     const trayIcon = await readFile(new URL('../../../../asset/img/kun_tray.png', import.meta.url))
 
-    expect(pngDimensions(appIcon)).toEqual({ width: 1254, height: 1254 })
+    expect(pngDimensions(appIcon)).toEqual({ width: 1024, height: 1024 })
     expect(pngDimensions(macIcon)).toEqual({ width: 1024, height: 1024 })
-    expect(pngDimensions(trayIcon)).toEqual({ width: 954, height: 994 })
+    expect(pngDimensions(trayIcon)).toEqual({ width: 512, height: 512 })
   })
 
   it('ships the iKun figure asset used by ikun mode', async () => {
