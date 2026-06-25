@@ -87,10 +87,10 @@ import { createTelegramRuntime, type TelegramRuntime, verifyTelegramBotToken } f
 import { isKunHealthResponseBody } from './kun-health'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-// 品牌升级为 Kun 后仍保留旧 AppUserModelId:它必须和 electron-builder
-// 的 appId 一致才能让 Windows 通知 / 任务栏分组在升级前后连续,而
-// appId 因为 NSIS 升级 GUID 与 macOS 更新签名校验的原因永远不改。
-const APP_USER_MODEL_ID = 'com.xingyuzhong.deepseekgui'
+// 必须和 electron-builder.config.cjs#appId 完全一致,Windows 才能把通知 /
+// 任务栏分组挂到正确的应用上。小元 是全新产品,appId 已改为
+// com.instudio.xiaoyuan,这里同步跟上。
+const APP_USER_MODEL_ID = 'com.instudio.xiaoyuan'
 const HIDDEN_START_ARG = '--hidden'
 const startupTraceEnabled =
   process.env.KUN_STARTUP_TRACE === '1' || process.env.DEEPSEEK_GUI_STARTUP_TRACE === '1'
@@ -480,7 +480,7 @@ function syncTray(settings: AppSettingsV1): void {
     tray.on('right-click', showTrayMenu)
   }
 
-  tray.setToolTip('Kun')
+  tray.setToolTip(app.getName())
   trayMenu = createTrayMenu(settings, [])
   tray.setContextMenu(null)
 }
@@ -566,7 +566,7 @@ async function showTurnCompleteNotification(
     return { ok: true, shown: false, reason: 'unsupported' }
   }
 
-  const title = normalizeNotificationText(payload.title, 'Kun', 80)
+  const title = normalizeNotificationText(payload.title, app.getName(), 80)
   const body = normalizeNotificationText(payload.body, 'Conversation complete.', 180)
 
   try {
@@ -714,7 +714,7 @@ async function superviseKunCrash(info: KunUnexpectedExitInfo): Promise<void> {
   publishRuntimeStatus({
     state: 'crashed',
     source: 'supervisor',
-    message: `Kun exited unexpectedly (${exitLabel}).`,
+    message: `Xiaoyuan exited unexpectedly (${exitLabel}).`,
     stderrTail: info.stderrTail
   })
   if (supervisedRestartInFlight) return
@@ -726,7 +726,7 @@ async function superviseKunCrash(info: KunUnexpectedExitInfo): Promise<void> {
       publishRuntimeStatus({
         state: 'stopped',
         source: 'supervisor',
-        message: 'Kun exited and automatic restart is unavailable (missing API key or auto-start disabled).'
+        message: 'Xiaoyuan exited and automatic restart is unavailable (missing API key or auto-start disabled).'
       })
       return
     }
@@ -739,8 +739,8 @@ async function superviseKunCrash(info: KunUnexpectedExitInfo): Promise<void> {
           state: 'failed',
           source: 'supervisor',
           message: lastError
-            ? `Kun keeps crashing; automatic restarts are paused. Last error: ${lastError}`
-            : 'Kun keeps crashing; automatic restarts are paused. Check the runtime logs, then retry.',
+            ? `Xiaoyuan keeps crashing; automatic restarts are paused. Last error: ${lastError}`
+            : 'Xiaoyuan keeps crashing; automatic restarts are paused. Check the runtime logs, then retry.',
           stderrTail: info.stderrTail
         })
         return

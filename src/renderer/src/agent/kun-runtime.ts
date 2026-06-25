@@ -111,7 +111,7 @@ function readRuntimeJson<T>(body: string, fallback: string): T {
  */
 export class KunRuntimeProvider implements AgentProvider {
   readonly id = 'kun' as const
-  readonly displayName = 'Kun'
+  readonly displayName = '小元'
 
   getCapabilities(): {
     interrupt: boolean

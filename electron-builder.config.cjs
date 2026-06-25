@@ -51,19 +51,15 @@ const hasNotaryToolCredentials = Boolean(
     (process.env.APPLE_API_KEY || process.env.APPLE_API_KEY_BASE64)
 )
 
-// R2 release prefix 维持旧值不动:线上老版本轮询的就是
-// `…/deepseek-gui/channels/<channel>/latest/`,prefix 一改老客户端就再也
-// 收不到更新。默认公开域名优先使用 kun-agent,运行时仍会兜底旧域名。
-const r2PublicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || 'https://www.kun-agent.com/api/r2')
-  .trim()
-  .replace(/\/+$/, '')
-const r2ReleasePrefix = (process.env.R2_RELEASE_PREFIX || 'deepseek-gui')
-  .trim()
-  .replace(/^\/+|\/+$/g, '')
+// 自动更新指向当前仓库(本 fork)的 GitHub Releases。electron-builder 会
+// 生成 latest.yml / latest-mac.yml / latest-linux.yml 并在发布时上传到该
+// 仓库的 Release;客户端用 electron-updater 的 github provider 直接读取。
+// owner/repo 可用环境变量覆盖,默认取当前仓库 cj620/instudio-desktop。
+const githubOwner = (process.env.XIAOYUAN_GITHUB_OWNER || 'cj620').trim()
+const githubRepo = (process.env.XIAOYUAN_GITHUB_REPO || 'instudio-desktop').trim()
 const updateChannel = normalizeUpdateChannel(
   envWithLegacyFallback('KUN_UPDATE_CHANNEL', 'DEEPSEEK_GUI_UPDATE_CHANNEL') || 'stable'
 )
-const genericUpdateUrl = `${r2PublicBaseUrl}/${r2ReleasePrefix}/channels/${updateChannel}/latest/`
 const releaseAppVersion = (
   envWithLegacyFallback('KUN_APP_VERSION', 'DEEPSEEK_GUI_APP_VERSION') || ''
 ).trim()
@@ -93,14 +89,13 @@ if (releaseArtifactVersion && !artifactVersionPattern.test(releaseArtifactVersio
 }
 
 module.exports = {
-  // appId 永远保持旧值,即使品牌已改名 Kun:
-  //  - macOS 端 Squirrel.Mac 校验更新包签名时锚定 bundle identifier,
-  //    换了 id 老版本会拒绝安装新版本;
-  //  - Windows 端 NSIS 以 appId 派生卸载 GUID,换了 id 升级安装不会
-  //    卸载旧版本,用户会装出两份应用;
-  //  - macOS TCC 权限、通知授权也都挂在这个 id 上。
-  appId: 'com.xingyuzhong.deepseekgui',
-  productName: 'Kun',
+  // 小元 是全新产品、无需兼容上游存量用户,因此使用自己的 appId。
+  // 这个 id 必须和 src/main/index.ts 的 APP_USER_MODEL_ID 保持一致:
+  //  - macOS:bundle identifier,TCC 权限 / 通知授权都挂在它上面;
+  //  - Windows:NSIS 以 appId 派生卸载 GUID、通知与任务栏分组也用它。
+  // 一旦正式发布就不要再改,否则老用户升级会装出两份应用、权限丢失。
+  appId: 'com.instudio.xiaoyuan',
+  productName: '小元',
   asar: true,
   asarUnpack: [
     '**/kun/dist/**/*',
@@ -143,11 +138,16 @@ module.exports = {
       filter: ['**/*']
     }
   ],
-  artifactName: `Kun-${artifactVersion}-\${os}-\${arch}.\${ext}`,
+  // 产物文件名保持 ASCII（Xiaoyuan），避免中文文件名在 electron-updater
+  // 下载 / GitHub Release 资源 URL 编码时出现兼容问题；用户可见的应用名
+  // 仍是「小元」（productName / 快捷方式 / 卸载项）。
+  artifactName: `Xiaoyuan-${artifactVersion}-\${os}-\${arch}.\${ext}`,
   publish: [
     {
-      provider: 'generic',
-      url: genericUpdateUrl
+      provider: 'github',
+      owner: githubOwner,
+      repo: githubRepo,
+      releaseType: updateChannel === 'frontier' ? 'prerelease' : 'release'
     }
   ],
   beforePack: './scripts/before-pack.cjs',
@@ -166,7 +166,7 @@ module.exports = {
     entitlementsInherit: 'build/entitlements.mac.inherit.plist',
     extendInfo: {
       // 语音输入：渲染进程通过 getUserMedia 录音做语音转文字。
-      NSMicrophoneUsageDescription: 'Kun uses the microphone for voice-to-text input.'
+      NSMicrophoneUsageDescription: '小元需要使用麦克风进行语音转文字输入。'
     },
     // macOS 不会自动套圆角遮罩,图标文件本身需要是「圆角方块 + 透明边距」
     icon: './src/asset/img/kun_mac.png',
@@ -198,8 +198,8 @@ module.exports = {
     // 明确创建快捷方式；always 在覆盖安装时也会重建（即使用户曾删掉桌面图标）
     createDesktopShortcut: 'always',
     createStartMenuShortcut: true,
-    shortcutName: 'Kun',
-    uninstallDisplayName: 'Kun',
+    shortcutName: '小元',
+    uninstallDisplayName: '小元',
     deleteAppDataOnUninstall: false
   },
   linux: {

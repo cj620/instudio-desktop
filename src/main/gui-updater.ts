@@ -16,14 +16,12 @@ import type {
 import { nextGuiUpdateCheckDelay } from '../shared/gui-update-schedule'
 import { DEFAULT_GUI_UPDATE_CHANNEL, normalizeGuiUpdateChannel } from '../shared/gui-update'
 
-// R2 prefix 保持旧值:线上还在运行的 DeepSeek GUI 老版本轮询的
-// 就是 `deepseek-gui/channels/<channel>/latest/`,prefix 一改老客户端
-// 就再也收不到 Kun 的升级包。域名优先使用 kun-agent,旧域名仅作兜底。
-const PRIMARY_R2_PUBLIC_BASE_URL = 'https://www.kun-agent.com/api/r2'
-const SECONDARY_R2_PUBLIC_BASE_URL = 'https://kun-agent.com/api/r2'
-const LEGACY_R2_PUBLIC_BASE_URL = 'https://deepseek-gui.com/api/r2'
-const DEFAULT_R2_RELEASE_PREFIX = 'deepseek-gui'
-const UPDATE_FEED_PROBE_TIMEOUT_MS = 5_000
+// 自动更新读取当前仓库(本 fork)的 GitHub Releases。owner/repo 默认从
+// package.json#repository 解析,可用 XIAOYUAN_GITHUB_REPO 环境变量覆盖。
+// electron-builder 发布时会把 latest.yml 等元数据上传到该仓库的 Release,
+// 客户端通过 electron-updater 的 github provider 直接读取。
+const DEFAULT_GITHUB_REPO = 'cj620/instudio-desktop'
+const GITHUB_API_TIMEOUT_MS = 5_000
 const { autoUpdater } = electronUpdater
 
 function envWithLegacyFallback(kunName: string, legacyName: string): string {
@@ -39,7 +37,6 @@ let downloadPromise: Promise<string[]> | null = null
 let configuredChannel: GuiUpdateChannel = normalizeGuiUpdateChannel(
   envWithLegacyFallback('KUN_UPDATE_CHANNEL', 'DEEPSEEK_GUI_UPDATE_CHANNEL') || undefined
 )
-let configuredFeedUrl = ''
 let getSelectedChannel: (() => GuiUpdateChannel | Promise<GuiUpdateChannel>) | null = null
 let getSelectedLocale: (() => 'en' | 'zh' | Promise<'en' | 'zh'>) | null = null
 let beforeInstallUpdate: (() => void | Promise<void>) | null = null
@@ -50,7 +47,6 @@ let backgroundCheckPromise: Promise<void> | null = null
 
 const GUI_UPDATE_SCHEDULE_FILE = 'gui-update-schedule.json'
 const GUI_VERSION_STATE_FILE = 'gui-version-state.json'
-const DEFAULT_CHANGELOG_URL = 'https://deepseek-gui.com/changelog'
 
 type GuiVersionState = {
   lastSeenVersion?: string
@@ -58,87 +54,6 @@ type GuiVersionState = {
     version: string
     releaseNotes?: string
   }
-}
-
-function trimSlashes(value: string): string {
-  return value.replace(/^\/+|\/+$/g, '')
-}
-
-function normalizeBaseUrl(raw: string): string {
-  return raw.trim().replace(/\/+$/, '')
-}
-
-function joinUrl(base: string, ...parts: string[]): string {
-  const cleanBase = normalizeBaseUrl(base)
-  const cleanParts = parts.map((p) => trimSlashes(p)).filter(Boolean)
-  return [cleanBase, ...cleanParts].join('/')
-}
-
-function envUpdateUrl(channel: GuiUpdateChannel): string {
-  const channelSpecific = envWithLegacyFallback(
-    `KUN_UPDATE_URL_${channel.toUpperCase()}`,
-    `DEEPSEEK_GUI_UPDATE_URL_${channel.toUpperCase()}`
-  )
-  const direct = channelSpecific || envWithLegacyFallback('KUN_UPDATE_URL', 'DEEPSEEK_GUI_UPDATE_URL')
-  return direct ? direct.replace(/\{channel\}/g, channel).replace(/\/?$/, '/') : ''
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values.filter(Boolean)))
-}
-
-function defaultR2BaseUrls(): string[] {
-  const configured = process.env.R2_PUBLIC_BASE_URL?.trim()
-  if (configured) return [configured]
-  return [PRIMARY_R2_PUBLIC_BASE_URL, SECONDARY_R2_PUBLIC_BASE_URL, LEGACY_R2_PUBLIC_BASE_URL]
-}
-
-function updateFeedUrlCandidates(channel: GuiUpdateChannel): string[] {
-  const direct = envUpdateUrl(channel)
-  if (direct) return [direct]
-
-  const prefix = process.env.R2_RELEASE_PREFIX?.trim() || DEFAULT_R2_RELEASE_PREFIX
-  return uniqueStrings(
-    defaultR2BaseUrls().map((base) => `${joinUrl(base, prefix, 'channels', channel, 'latest')}/`)
-  )
-}
-
-function updateFeedUrl(channel: GuiUpdateChannel): string {
-  return updateFeedUrlCandidates(channel)[0]
-}
-
-function updateFeedManifestUrl(feedUrl: string): string {
-  return `${feedUrl}${platformManifestName()}`
-}
-
-async function isUpdateFeedAccessible(feedUrl: string): Promise<boolean> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), UPDATE_FEED_PROBE_TIMEOUT_MS)
-  try {
-    const res = await fetch(updateFeedManifestUrl(feedUrl), {
-      method: 'HEAD',
-      headers: {
-        Accept: 'application/x-yaml,text/yaml,text/plain,*/*',
-        'User-Agent': `kun/${app.getVersion()}`
-      },
-      signal: controller.signal
-    })
-    return res.ok
-  } catch {
-    return false
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-async function resolveUpdateFeedUrl(channel: GuiUpdateChannel): Promise<string> {
-  const candidates = updateFeedUrlCandidates(channel)
-  if (candidates.length <= 1) return candidates[0]
-
-  for (const candidate of candidates) {
-    if (await isUpdateFeedAccessible(candidate)) return candidate
-  }
-  return candidates[candidates.length - 1]
 }
 
 function guiUpdateSchedulePath(): string {
@@ -166,7 +81,9 @@ async function writeGuiVersionState(state: GuiVersionState): Promise<void> {
 }
 
 function changelogUrl(): string {
-  return envWithLegacyFallback('KUN_CHANGELOG_URL', 'DEEPSEEK_GUI_CHANGELOG_URL') || DEFAULT_CHANGELOG_URL
+  const direct = envWithLegacyFallback('KUN_CHANGELOG_URL', 'DEEPSEEK_GUI_CHANGELOG_URL')
+  if (direct) return direct
+  return resolveGithubReleaseUrl() ?? `https://github.com/${DEFAULT_GITHUB_REPO}/releases`
 }
 
 function normalizeReleaseNotes(value: unknown): string | undefined {
@@ -247,9 +164,11 @@ function readPackageJson(): Record<string, unknown> | null {
   }
 }
 
-function resolveGithubReleaseUrl(): string | null {
-  const envRepo = normalizeGithubOwnerRepo(process.env.DEEPSEEK_GUI_GITHUB_REPO?.trim() ?? '')
-  if (envRepo) return `https://github.com/${envRepo}/releases`
+function resolveGithubOwnerRepo(): string | null {
+  const envRepo = normalizeGithubOwnerRepo(
+    process.env.XIAOYUAN_GITHUB_REPO?.trim() || process.env.DEEPSEEK_GUI_GITHUB_REPO?.trim() || ''
+  )
+  if (envRepo) return envRepo
 
   const pkg = readPackageJson()
   const repository = pkg?.repository
@@ -259,7 +178,11 @@ function resolveGithubReleaseUrl(): string | null {
       : repository && typeof repository === 'object' && 'url' in repository
         ? String((repository as { url?: unknown }).url ?? '')
         : ''
-  const repo = normalizeGithubOwnerRepo(raw)
+  return normalizeGithubOwnerRepo(raw) || normalizeGithubOwnerRepo(DEFAULT_GITHUB_REPO)
+}
+
+function resolveGithubReleaseUrl(): string | null {
+  const repo = resolveGithubOwnerRepo()
   return repo ? `https://github.com/${repo}/releases` : null
 }
 
@@ -271,7 +194,7 @@ function downloadPageUrl(): string {
   const homepage = typeof pkg?.homepage === 'string' ? pkg.homepage.trim() : ''
   if (homepage) return homepage
 
-  return resolveGithubReleaseUrl() ?? updateFeedUrl(configuredChannel)
+  return resolveGithubReleaseUrl() ?? `https://github.com/${DEFAULT_GITHUB_REPO}/releases`
 }
 
 function releaseUrlForVersion(version: string): string {
@@ -298,18 +221,6 @@ function isVersionGreater(latest: string, current: string): boolean {
     if (av < bv) return false
   }
   return false
-}
-
-function platformManifestName(): string {
-  if (process.platform === 'darwin') return 'latest-mac.yml'
-  if (process.platform === 'linux') return 'latest-linux.yml'
-  return 'latest.yml'
-}
-
-function parseYamlScalar(source: string, key: string): string {
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = source.match(new RegExp(`^${escaped}:\\s*['"]?([^'"\\n]+)['"]?\\s*$`, 'm'))
-  return match?.[1]?.trim() ?? ''
 }
 
 function macAutoUpdateAllowed(): boolean {
@@ -454,22 +365,21 @@ async function resolveUpdateChannel(requested?: GuiUpdateChannel): Promise<GuiUp
   return DEFAULT_GUI_UPDATE_CHANNEL
 }
 
-function configureUpdaterChannel(channel: GuiUpdateChannel, feedUrl = updateFeedUrl(channel)): void {
+function configureUpdaterChannel(channel: GuiUpdateChannel): void {
   const normalized = normalizeGuiUpdateChannel(channel)
-  const changed = normalized !== configuredChannel || feedUrl !== configuredFeedUrl
+  const changed = normalized !== configuredChannel
   configuredChannel = normalized
-  configuredFeedUrl = feedUrl
   autoUpdater.allowPrerelease = normalized === 'frontier'
-  autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl })
+  const repo = resolveGithubOwnerRepo()
+  const [owner, name] = repo ? repo.split('/') : []
+  if (owner && name) {
+    autoUpdater.setFeedURL({ provider: 'github', owner, repo: name })
+  }
   if (!changed) return
   downloaded = false
   downloadPromise = null
   lastInfo = null
   emitGuiUpdateState({ status: 'idle' })
-}
-
-async function configureReachableUpdaterChannel(channel: GuiUpdateChannel): Promise<void> {
-  configureUpdaterChannel(channel, await resolveUpdateFeedUrl(channel))
 }
 
 export function setGuiUpdateChannel(channel: GuiUpdateChannel): void {
@@ -481,16 +391,26 @@ async function checkManualUpdate(
   code: GuiUpdateFailureCode = 'unsupported'
 ): Promise<GuiUpdateInfo> {
   const currentVersion = app.getVersion()
+  const repo = resolveGithubOwnerRepo()
+  if (!repo) {
+    return {
+      ok: false,
+      currentVersion,
+      code,
+      message: `${unsupportedMessage()} Update source is not configured.`,
+      releaseUrl: downloadPageUrl(),
+      channel
+    }
+  }
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), GITHUB_API_TIMEOUT_MS)
   try {
-    const feedUrl = configuredChannel === channel && configuredFeedUrl
-      ? configuredFeedUrl
-      : await resolveUpdateFeedUrl(channel)
-    const url = updateFeedManifestUrl(feedUrl)
-    const res = await fetch(url, {
+    const res = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=20`, {
       headers: {
-        Accept: 'application/x-yaml,text/yaml,text/plain,*/*',
-        'User-Agent': `kun/${currentVersion}`
-      }
+        Accept: 'application/vnd.github+json',
+        'User-Agent': `xiaoyuan/${currentVersion}`
+      },
+      signal: controller.signal
     })
     if (!res.ok) {
       return {
@@ -502,14 +422,23 @@ async function checkManualUpdate(
         channel
       }
     }
-    const text = await res.text()
-    const latestVersion = parseYamlScalar(text, 'version')
+    const releases = (await res.json()) as Array<{
+      tag_name?: string
+      draft?: boolean
+      prerelease?: boolean
+      published_at?: string
+    }>
+    const wantPrerelease = channel === 'frontier'
+    const picked = Array.isArray(releases)
+      ? releases.find((r) => r && !r.draft && (wantPrerelease || !r.prerelease))
+      : undefined
+    const latestVersion = (picked?.tag_name ?? '').trim().replace(/^v/i, '')
     if (!latestVersion) {
       return {
         ok: false,
         currentVersion,
         code,
-        message: `${unsupportedMessage()} Update metadata is missing a version.`,
+        message: `${unsupportedMessage()} No published release was found.`,
         releaseUrl: downloadPageUrl(),
         channel
       }
@@ -520,7 +449,7 @@ async function checkManualUpdate(
       latestVersion,
       hasUpdate: isVersionGreater(latestVersion, currentVersion),
       releaseUrl: releaseUrlForVersion(latestVersion),
-      releaseDate: parseYamlScalar(text, 'releaseDate'),
+      releaseDate: picked?.published_at ?? '',
       channel,
       manualOnly: true,
       downloaded: false
@@ -537,6 +466,8 @@ async function checkManualUpdate(
       releaseUrl: downloadPageUrl(),
       channel
     }
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
@@ -633,13 +564,13 @@ export async function showPostUpdateReleaseNotes(): Promise<void> {
   const isZh = locale === 'zh'
   const options: MessageBoxOptions = {
     type: 'info',
-    title: isZh ? 'Kun 已更新' : 'Kun updated',
-    message: isZh ? `已更新到 Kun ${currentVersion}` : `Kun has been updated to ${currentVersion}`,
+    title: isZh ? '小元已更新' : 'Xiaoyuan updated',
+    message: isZh ? `已更新到小元 ${currentVersion}` : `Xiaoyuan has been updated to ${currentVersion}`,
     detail:
       pendingUpdate?.releaseNotes ??
       (isZh
-        ? '此版本的完整更新内容可在 Kun 更新日志中查看。'
-        : 'See the Kun changelog for the complete release notes.'),
+        ? '此版本的完整更新内容可在小元更新日志中查看。'
+        : 'See the Xiaoyuan changelog for the complete release notes.'),
     buttons: isZh ? ['查看更新日志', '稍后'] : ['View changelog', 'Later'],
     defaultId: 0,
     cancelId: 1,
@@ -661,7 +592,7 @@ export function getGuiUpdateState(): GuiUpdateState {
 
 export async function checkGuiUpdate(channel?: GuiUpdateChannel): Promise<GuiUpdateInfo> {
   const selectedChannel = await resolveUpdateChannel(channel)
-  await configureReachableUpdaterChannel(selectedChannel)
+  configureUpdaterChannel(selectedChannel)
 
   if (!macAutoUpdateAllowed()) {
     return checkManualUpdate(selectedChannel, 'unsupported')
@@ -694,7 +625,7 @@ export async function checkGuiUpdate(channel?: GuiUpdateChannel): Promise<GuiUpd
 
 export async function downloadGuiUpdate(channel?: GuiUpdateChannel): Promise<GuiUpdateDownloadResult> {
   const selectedChannel = await resolveUpdateChannel(channel)
-  await configureReachableUpdaterChannel(selectedChannel)
+  configureUpdaterChannel(selectedChannel)
 
   if (!macAutoUpdateAllowed()) {
     return {

@@ -1,8 +1,8 @@
 {
-  "name": "kun-gui",
-  "productName": "Kun",
+  "name": "xiaoyuan-desktop",
+  "productName": "小元",
   "version": "0.1.0",
-  "description": "Electron workbench for the Kun runtime (HTTP/SSE)",
+  "description": "小元 — Electron 桌面工作台(基于本地 kun runtime,HTTP/SSE)",
   "main": "./out/main/index.js",
   "type": "module",
   "scripts": {
@@ -13,8 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dist": "npm run build && npx --yes electron-builder@26.8.1 --config electron-builder.config.cjs --publish never",
-    "dist:mac": "rm -f dist/Kun-*-mac-* dist/DeepSeek-GUI-*-mac-* dist/latest-mac.yml && npm run build && npm run dist:mac:x64:dmg && npm run dist:mac:x64:zip && npm run dist:mac:arm64:dmg && npm run dist:mac:arm64:zip && node ./scripts/generate-mac-latest.cjs dist",
-    "dist:mac:signed": "rm -f dist/Kun-*-mac-* dist/DeepSeek-GUI-*-mac-* dist/latest-mac.yml && MAC_SIGN=1 npm run dist:mac:x64 && MAC_SIGN=1 npm run dist:mac:arm64 && node ./scripts/generate-mac-latest.cjs dist",
+    "dist:mac": "rm -f dist/Xiaoyuan-*-mac-* dist/Kun-*-mac-* dist/latest-mac.yml && npm run build && npm run dist:mac:x64:dmg && npm run dist:mac:x64:zip && npm run dist:mac:arm64:dmg && npm run dist:mac:arm64:zip && node ./scripts/generate-mac-latest.cjs dist",
+    "dist:mac:signed": "rm -f dist/Xiaoyuan-*-mac-* dist/Kun-*-mac-* dist/latest-mac.yml && MAC_SIGN=1 npm run dist:mac:x64 && MAC_SIGN=1 npm run dist:mac:arm64 && node ./scripts/generate-mac-latest.cjs dist",
     "dist:mac:arm64": "npm run build && npm run dist:mac:arm64:dmg && npm run dist:mac:arm64:zip",
     "dist:mac:x64": "npm run build && npm run dist:mac:x64:dmg && npm run dist:mac:x64:zip",
     "dist:mac:arm64:dmg": "npx --yes electron-builder@26.8.1 --config electron-builder.config.cjs --publish never --mac dmg --arm64",
@@ -23,6 +23,9 @@
     "dist:mac:x64:zip": "node ./scripts/zip-mac-app.cjs x64",
     "dist:win": "npm run dist -- --win nsis --x64",
     "dist:linux": "npm run dist -- --linux AppImage --x64",
+    "release:patch": "npm version patch -m \"chore(release): %s\" && git push origin master --follow-tags",
+    "release:minor": "npm version minor -m \"chore(release): %s\" && git push origin master --follow-tags",
+    "release:major": "npm version major -m \"chore(release): %s\" && git push origin master --follow-tags",
     "release:all": "bash ./scripts/release-mac.sh",
     "release:mac": "bash ./scripts/release-mac.sh",
     "release:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/release-win.ps1",
@@ -105,11 +108,11 @@
     "vite": "^6.2.0",
     "vitest": "^4.1.7"
   },
-  "author": "Kun Contributors",
+  "author": "instudio",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "homepage": "https://github.com/KunAgent/Kun",
+  "homepage": "https://github.com/cj620/instudio-desktop",
   "repository": {
     "type": "git",
-    "url": "https://github.com/KunAgent/Kun.git"
+    "url": "https://github.com/cj620/instudio-desktop.git"
   }
 }

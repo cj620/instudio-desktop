@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="src/asset/img/kun.png" width="104" alt="Kun icon">
+  <img src="src/asset/img/kun.png" width="104" alt="Xiaoyuan icon">
 </p>
 
-<h1 align="center">Kun</h1>
+<h1 align="center">Xiaoyuan</h1>
 
 <p align="center">
   <strong>An experiment in requirement-first coding for the next programming paradigm.</strong><br>
@@ -14,7 +14,7 @@
   &nbsp;·&nbsp;
   <strong>English</strong>
   &nbsp;·&nbsp;
-  <a href="https://github.com/KunAgent/Kun/releases">Download</a>
+  <a href="https://github.com/cj620/instudio-desktop/releases">Download</a>
   &nbsp;·&nbsp;
   <a href="#documentation-map">Docs</a>
   &nbsp;·&nbsp;
@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/KunAgent/Kun/releases"><img src="https://img.shields.io/github/v/release/KunAgent/Kun?label=release" alt="GitHub release"></a>
+  <a href="https://github.com/cj620/instudio-desktop/releases"><img src="https://img.shields.io/github/v/release/cj620/instudio-desktop?label=release" alt="GitHub release"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue" alt="License: PolyForm Noncommercial 1.0.0"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/Electron-34-47848F?logo=electron&logoColor=white" alt="Electron 34">
@@ -130,7 +130,7 @@ This stack lets Kun route different jobs to the right capability: fast models fo
 
 ### Path A: Download a Release
 
-Download the latest build from [GitHub Releases](https://github.com/KunAgent/Kun/releases).
+Download the latest build from [GitHub Releases](https://github.com/cj620/instudio-desktop/releases).
 
 | Platform | Package | Architecture |
 | --- | --- | --- |
@@ -156,7 +156,7 @@ Requirements:
 | Model credentials | At least one of DeepSeek / Xiaomi MiMo / MiniMax / custom provider |
 
 ```bash
-git clone https://github.com/KunAgent/Kun.git
+git clone https://github.com/cj620/instudio-desktop.git
 cd Kun
 npm install
 npm run dev
@@ -216,8 +216,8 @@ Project conventions:
 
 Thanks to [LobsterAI](https://github.com/netease-youdao/LobsterAI), DeepSeek, Xiaomi MiMo, MiniMax, and everyone who contributes issues, ideas, code, and documentation.
 
-<a href="https://github.com/KunAgent/Kun/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=KunAgent/Kun" />
+<a href="https://github.com/cj620/instudio-desktop/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=cj620/instudio-desktop" />
 </a>
 
 ## License
@@ -228,4 +228,4 @@ Educational institutions and public-interest educational organizations may use t
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=KunAgent/Kun&type=date&legend=top-left)](https://www.star-history.com/?repos=KunAgent%2FKun&type=date&logscale=&legend=top-left)
+[![Star History Chart](https://api.star-history.com/chart?repos=cj620/instudio-desktop&type=date&legend=top-left)](https://www.star-history.com/?repos=KunAgent%2FKun&type=date&logscale=&legend=top-left)

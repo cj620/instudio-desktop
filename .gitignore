@@ -48,3 +48,6 @@ TestResults.xml
 
 ### Internal docs
 docs/R2_RELEASE.md
+
+### graphify knowledge-graph output
+graphify-out/

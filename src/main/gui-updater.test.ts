@@ -87,17 +87,9 @@ afterEach(() => {
   vi.resetModules()
 })
 
-function platformManifestName(): string {
-  if (process.platform === 'darwin') return 'latest-mac.yml'
-  if (process.platform === 'linux') return 'latest-linux.yml'
-  return 'latest.yml'
-}
-
-describe('checkGuiUpdate feed URL', () => {
-  it('prefers the kun-agent update feed when metadata is reachable', async () => {
+describe('checkGuiUpdate feed provider', () => {
+  it('configures the github provider for the current repo and reports an available update', async () => {
     process.env.DEEPSEEK_GUI_ALLOW_UNSIGNED_UPDATES = '1'
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true })
-    vi.stubGlobal('fetch', fetchMock)
     updater.checkForUpdates.mockResolvedValue({
       updateInfo: { version: '0.2.0', releaseDate: '2026-06-06T00:00:00.000Z' },
       isUpdateAvailable: true
@@ -111,58 +103,31 @@ describe('checkGuiUpdate feed URL', () => {
       latestVersion: '0.2.0',
       hasUpdate: true
     })
-    expect(fetchMock).toHaveBeenCalledWith(
-      `https://www.kun-agent.com/api/r2/deepseek-gui/channels/stable/latest/${platformManifestName()}`,
-      expect.objectContaining({ method: 'HEAD' })
-    )
-    expect(updater.setFeedURL).toHaveBeenLastCalledWith({
-      provider: 'generic',
-      url: 'https://www.kun-agent.com/api/r2/deepseek-gui/channels/stable/latest/'
+    expect(updater.setFeedURL).toHaveBeenCalledWith({
+      provider: 'github',
+      owner: 'cj620',
+      repo: 'instudio-desktop'
     })
+    expect(updater.allowPrerelease).toBe(false)
   })
 
-  it('falls back to the bare kun-agent feed before the legacy feed', async () => {
+  it('allows prereleases on the frontier channel', async () => {
     process.env.DEEPSEEK_GUI_ALLOW_UNSIGNED_UPDATES = '1'
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce({ ok: false, status: 404 })
-      .mockResolvedValueOnce({ ok: true })
-    vi.stubGlobal('fetch', fetchMock)
     updater.checkForUpdates.mockResolvedValue({
-      updateInfo: { version: '0.2.0', releaseDate: '2026-06-06T00:00:00.000Z' },
+      updateInfo: { version: '0.3.0-beta.1', releaseDate: '2026-06-06T00:00:00.000Z' },
       isUpdateAvailable: true
     })
 
     const module = await import('./gui-updater')
-    module.initializeGuiUpdater(() => null, () => 'stable')
+    module.initializeGuiUpdater(() => null, () => 'frontier')
 
-    await expect(module.checkGuiUpdate('stable')).resolves.toMatchObject({
-      ok: true,
-      latestVersion: '0.2.0',
-      hasUpdate: true
-    })
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      `https://www.kun-agent.com/api/r2/deepseek-gui/channels/stable/latest/${platformManifestName()}`,
-      expect.objectContaining({ method: 'HEAD' })
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      `https://kun-agent.com/api/r2/deepseek-gui/channels/stable/latest/${platformManifestName()}`,
-      expect.objectContaining({ method: 'HEAD' })
-    )
-    expect(updater.setFeedURL).toHaveBeenLastCalledWith({
-      provider: 'generic',
-      url: 'https://kun-agent.com/api/r2/deepseek-gui/channels/stable/latest/'
-    })
+    await expect(module.checkGuiUpdate('frontier')).resolves.toMatchObject({ ok: true })
+    expect(updater.allowPrerelease).toBe(true)
   })
 
-  it('falls back to the legacy deepseek-gui feed when both kun-agent feeds are unavailable', async () => {
+  it('honors the XIAOYUAN_GITHUB_REPO override', async () => {
     process.env.DEEPSEEK_GUI_ALLOW_UNSIGNED_UPDATES = '1'
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce({ ok: false, status: 404 })
-      .mockResolvedValueOnce({ ok: false, status: 404 })
-      .mockResolvedValueOnce({ ok: true })
-    vi.stubGlobal('fetch', fetchMock)
+    process.env.XIAOYUAN_GITHUB_REPO = 'myorg/myapp'
     updater.checkForUpdates.mockResolvedValue({
       updateInfo: { version: '0.2.0', releaseDate: '2026-06-06T00:00:00.000Z' },
       isUpdateAvailable: true
@@ -171,29 +136,11 @@ describe('checkGuiUpdate feed URL', () => {
     const module = await import('./gui-updater')
     module.initializeGuiUpdater(() => null, () => 'stable')
 
-    await expect(module.checkGuiUpdate('stable')).resolves.toMatchObject({
-      ok: true,
-      latestVersion: '0.2.0',
-      hasUpdate: true
-    })
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      `https://www.kun-agent.com/api/r2/deepseek-gui/channels/stable/latest/${platformManifestName()}`,
-      expect.objectContaining({ method: 'HEAD' })
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      `https://kun-agent.com/api/r2/deepseek-gui/channels/stable/latest/${platformManifestName()}`,
-      expect.objectContaining({ method: 'HEAD' })
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      `https://deepseek-gui.com/api/r2/deepseek-gui/channels/stable/latest/${platformManifestName()}`,
-      expect.objectContaining({ method: 'HEAD' })
-    )
-    expect(updater.setFeedURL).toHaveBeenLastCalledWith({
-      provider: 'generic',
-      url: 'https://deepseek-gui.com/api/r2/deepseek-gui/channels/stable/latest/'
+    await module.checkGuiUpdate('stable')
+    expect(updater.setFeedURL).toHaveBeenCalledWith({
+      provider: 'github',
+      owner: 'myorg',
+      repo: 'myapp'
     })
   })
 })
@@ -287,13 +234,13 @@ describe('showPostUpdateReleaseNotes', () => {
     expect(showMessageBox).toHaveBeenCalledTimes(1)
     expect(showMessageBox).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Kun 已更新',
-        message: '已更新到 Kun 0.2.0',
+        title: '小元已更新',
+        message: '已更新到小元 0.2.0',
         detail: '修复更新流程并改进启动体验。',
         buttons: ['查看更新日志', '稍后']
       })
     )
-    expect(openExternal).toHaveBeenCalledWith('https://deepseek-gui.com/changelog')
+    expect(openExternal).toHaveBeenCalledWith('https://github.com/cj620/instudio-desktop/releases')
     expect(JSON.parse(mockedFiles.get(versionStatePath) ?? '{}')).toEqual({
       lastSeenVersion: '0.2.0'
     })

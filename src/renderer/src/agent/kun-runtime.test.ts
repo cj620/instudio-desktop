@@ -64,10 +64,10 @@ afterEach(() => {
 })
 
 describe('KunRuntimeProvider', () => {
-  it('reports the kun id and Kun display name', () => {
+  it('reports the kun id and 小元 display name', () => {
     const provider = new KunRuntimeProvider()
     expect(provider.id).toBe('kun')
-    expect(provider.displayName).toBe('Kun')
+    expect(provider.displayName).toBe('小元')
   })
 
   it('exposes the local HTTP/SSE capabilities', () => {
