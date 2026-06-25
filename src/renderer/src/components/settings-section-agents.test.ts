@@ -308,7 +308,7 @@ function baseCtx(): Record<string, unknown> {
     skillNotice: null,
     openSkillRoot: asyncNoop,
     openPlugins: noop,
-    mcpConfigPath: '/tmp/project/.kun/mcp.json',
+    mcpConfigPath: '/tmp/project/.xiaoyuan/mcp.json',
     mcpConfigExists: true,
     mcpConfigText: '{"mcpServers":{}}',
     setMcpConfigText: noop,
@@ -643,7 +643,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx: baseCtx() }))
 
     expect(html).toContain('External tool config path')
-    expect(html).toContain('/tmp/project/.kun/mcp.json')
+    expect(html).toContain('/tmp/project/.xiaoyuan/mcp.json')
     expect(html).toContain('Model and API credentials do not live in this MCP file')
     expect(html).not.toContain('DeepSeek auth')
     expect(html).not.toContain('Base URL are stored in this file')

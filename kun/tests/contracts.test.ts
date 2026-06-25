@@ -79,7 +79,7 @@ describe('contracts', () => {
         source: {
           kind: 'plan',
           planId: 'plan_1',
-          relativePath: '.kunsdd/plan/plan.md',
+          relativePath: '.xiaoyuansdd/plan/plan.md',
           ordinal: 0,
           contentHash: 'abc'
         },

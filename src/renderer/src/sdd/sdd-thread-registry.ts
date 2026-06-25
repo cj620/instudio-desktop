@@ -5,9 +5,9 @@ import type { SddDraft } from './sdd-draft-store'
 const SDD_THREAD_REGISTRY_KEY = 'kun.sdd.threadRegistry.v1'
 const MAX_SDD_THREAD_RECORDS = 100
 const MAX_SDD_THREAD_IDS_PER_DRAFT = 20
-// Both layouts: retired pre-unit drafts (.kunsdd/draft/) still have threads
+// Both layouts: retired pre-unit drafts (.xiaoyuansdd/draft/) still have threads
 // in the runtime and must stay hidden from the chat sidebar.
-const SDD_DRAFT_PATH_FRAGMENTS = ['.kunsdd/draft/', '.kunsdd/requirements/']
+const SDD_DRAFT_PATH_FRAGMENTS = ['.xiaoyuansdd/draft/', '.xiaoyuansdd/requirements/']
 
 export type SddThreadRecord = {
   draftId: string

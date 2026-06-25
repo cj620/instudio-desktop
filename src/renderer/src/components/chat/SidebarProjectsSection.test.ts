@@ -42,7 +42,7 @@ function draft(overrides: Partial<SddDraftHistoryItem> & Pick<SddDraftHistoryIte
   return {
     id: overrides.id,
     workspaceRoot: overrides.workspaceRoot ?? '/tmp/app',
-    relativePath: overrides.relativePath ?? `.kunsdd/draft/${folder}/requirement.md`,
+    relativePath: overrides.relativePath ?? `.xiaoyuansdd/draft/${folder}/requirement.md`,
     createdAt: overrides.createdAt ?? '2026-01-01T00:00:00.000Z',
     updatedAt: overrides.updatedAt ?? '2026-01-02T00:00:00.000Z',
     title: overrides.title,
@@ -145,7 +145,7 @@ describe('SidebarProjectsSection groups', () => {
 
   it('shows worktree threads under their source project instead of a separate worktree project', () => {
     const projectPath = '/Users/zxy/code/Kook-VoiceShop-Bot'
-    const worktreePath = '/Users/zxy/.kun/worktrees/0ff7/Kook-VoiceShop-Bot'
+    const worktreePath = '/Users/zxy/.xiaoyuan/worktrees/0ff7/Kook-VoiceShop-Bot'
     const threadWorktrees = {
       'thread-worktree': {
         projectPath,
@@ -309,7 +309,7 @@ describe('ThreadRow', () => {
         }),
         worktreeRecord: {
           projectPath: '/Users/zxy/project-a',
-          worktreePath: '/Users/zxy/.kun/worktrees/abcd/project-a',
+          worktreePath: '/Users/zxy/.xiaoyuan/worktrees/abcd/project-a',
           branch: 'feature/layout-fix'
         },
         active: false,

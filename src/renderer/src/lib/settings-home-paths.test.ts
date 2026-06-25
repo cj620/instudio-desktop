@@ -99,23 +99,23 @@ function settings(): AppSettingsV1 {
       kun: {
         ...defaultKunRuntimeSettings(),
         binaryPath: '~/bin/kun',
-        dataDir: '~/.kun/data',
+        dataDir: '~/.xiaoyuan/data',
         storage: {
           ...defaultKunRuntimeSettings().storage,
           sqlitePath: '~/Library/Application Support/Kun/kun.sqlite3'
         }
       }
     },
-    workspaceRoot: '~/.kun/default_workspace',
+    workspaceRoot: '~/.xiaoyuan/default_workspace',
     log: { enabled: true, retentionDays: 2 },
     notifications: { turnComplete: true },
     appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: {
       ...defaultWriteSettings(),
-      defaultWorkspaceRoot: '~/.kun/write_workspace',
+      defaultWorkspaceRoot: '~/.xiaoyuan/write_workspace',
       activeWorkspaceRoot: '~/drafts',
-      workspaces: ['~/.kun/write_workspace', '~/drafts']
+      workspaces: ['~/.xiaoyuan/write_workspace', '~/drafts']
     },
     claw: {
       ...defaultClawSettings(),
@@ -148,10 +148,10 @@ function settings(): AppSettingsV1 {
 
 describe('settings home paths', () => {
   it('compacts absolute home paths on macOS and Linux', () => {
-    expect(compactHomePathForSettingsDisplay('/Users/mothra/.kun/default_workspace', '/Users/mothra', 'darwin'))
-      .toBe('~/.kun/default_workspace')
-    expect(compactHomePathForSettingsDisplay('/home/mothra/.kun/default_workspace', '/home/mothra', 'linux'))
-      .toBe('~/.kun/default_workspace')
+    expect(compactHomePathForSettingsDisplay('/Users/mothra/.xiaoyuan/default_workspace', '/Users/mothra', 'darwin'))
+      .toBe('~/.xiaoyuan/default_workspace')
+    expect(compactHomePathForSettingsDisplay('/home/mothra/.xiaoyuan/default_workspace', '/home/mothra', 'linux'))
+      .toBe('~/.xiaoyuan/default_workspace')
     expect(compactHomePathForSettingsDisplay('/Users/mothra/work/', '/Users/mothra', 'darwin'))
       .toBe('~/work/')
     expect(compactHomePathForSettingsDisplay('/Users/mothra/', '/Users/mothra', 'darwin'))
@@ -159,17 +159,17 @@ describe('settings home paths', () => {
   })
 
   it('does not compact home paths on Windows', () => {
-    expect(compactHomePathForSettingsDisplay('C:\\Users\\mothra\\.kun', 'C:\\Users\\mothra', 'win32'))
-      .toBe('C:\\Users\\mothra\\.kun')
+    expect(compactHomePathForSettingsDisplay('C:\\Users\\mothra\\.xiaoyuan', 'C:\\Users\\mothra', 'win32'))
+      .toBe('C:\\Users\\mothra\\.xiaoyuan')
   })
 
   it('expands tilde input on macOS and Linux only', () => {
-    expect(expandHomePathForSettingsUse('~/.kun/data', '/Users/mothra', 'darwin'))
-      .toBe('/Users/mothra/.kun/data')
-    expect(expandHomePathForSettingsUse('~/.kun/data', '/home/mothra', 'linux'))
-      .toBe('/home/mothra/.kun/data')
-    expect(expandHomePathForSettingsUse('~\\.kun\\data', '/Users/mothra', 'win32'))
-      .toBe('~\\.kun\\data')
+    expect(expandHomePathForSettingsUse('~/.xiaoyuan/data', '/Users/mothra', 'darwin'))
+      .toBe('/Users/mothra/.xiaoyuan/data')
+    expect(expandHomePathForSettingsUse('~/.xiaoyuan/data', '/home/mothra', 'linux'))
+      .toBe('/home/mothra/.xiaoyuan/data')
+    expect(expandHomePathForSettingsUse('~\\.xiaoyuan\\data', '/Users/mothra', 'win32'))
+      .toBe('~\\.xiaoyuan\\data')
   })
 
   it('keeps multiline path text shape while compacting and expanding', () => {
@@ -183,11 +183,11 @@ describe('settings home paths', () => {
   it('expands nested settings paths before saving', () => {
     const expanded = expandSettingsHomePathsForUse(settings(), '/Users/mothra', 'darwin')
 
-    expect(expanded.workspaceRoot).toBe('/Users/mothra/.kun/default_workspace')
+    expect(expanded.workspaceRoot).toBe('/Users/mothra/.xiaoyuan/default_workspace')
     expect(expanded.agents.kun.binaryPath).toBe('/Users/mothra/bin/kun')
-    expect(expanded.agents.kun.dataDir).toBe('/Users/mothra/.kun/data')
+    expect(expanded.agents.kun.dataDir).toBe('/Users/mothra/.xiaoyuan/data')
     expect(expanded.agents.kun.storage.sqlitePath).toBe('/Users/mothra/Library/Application Support/Kun/kun.sqlite3')
-    expect(expanded.write.defaultWorkspaceRoot).toBe('/Users/mothra/.kun/write_workspace')
+    expect(expanded.write.defaultWorkspaceRoot).toBe('/Users/mothra/.xiaoyuan/write_workspace')
     expect(expanded.write.activeWorkspaceRoot).toBe('/Users/mothra/drafts')
     expect(expanded.claw.im.workspaceRoot).toBe('/Users/mothra/claw')
     expect(expanded.claw.skills.extraDirs).toEqual(['/Users/mothra/skills'])

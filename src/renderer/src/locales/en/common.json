@@ -910,7 +910,7 @@
   "pluginSkillRootGlobalAgents": "Global | ~/.agents/skills",
   "pluginSkillRootGlobalClaude": "Global | ~/.claude/skills",
   "pluginSkillRootGlobalCodex": "Global | ~/.codex/skills",
-  "pluginSkillRootGlobalDeepseek": "Global | ~/.kun/skills",
+  "pluginSkillRootGlobalDeepseek": "Global | ~/.xiaoyuan/skills",
   "pluginSkillRootNeedsWorkspace": "workspace required",
   "pluginSkillRootNone": "No skill directory detected",
   "pluginSkillRootMissing": "The current Skill directory is unavailable. Choose a workspace or switch to a global directory.",

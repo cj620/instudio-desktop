@@ -32,7 +32,7 @@ import type { GuiUpdateInfo } from '@shared/gui-update'
 type RendererSettingsShape = AppSettingsPatch
 type SettingsPatch = AppSettingsPatch
 
-export const DEFAULT_WORKSPACE_ROOT = '~/.kun/default_workspace'
+export const DEFAULT_WORKSPACE_ROOT = '~/.xiaoyuan/default_workspace'
 
 export function splitSettingsList(raw: string): string[] {
   return raw

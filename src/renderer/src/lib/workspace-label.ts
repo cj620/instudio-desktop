@@ -11,8 +11,8 @@ function normalizePathForMatch(path: string): string {
 function isDefaultWorkspacePath(path: string): boolean {
   const normalized = normalizePathForMatch(path)
   return (
-    normalized === '~/.kun/default_workspace'
-    || normalized.endsWith('/.kun/default_workspace')
+    normalized === '~/.xiaoyuan/default_workspace'
+    || normalized.endsWith('/.xiaoyuan/default_workspace')
     || normalized === '~/.deepseekgui/default_workspace'
     || normalized.endsWith('/.deepseekgui/default_workspace')
   )

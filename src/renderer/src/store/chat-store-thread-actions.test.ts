@@ -90,7 +90,7 @@ describe('chat-store-thread-actions queued messages', () => {
     const guiPlan: GuiPlanMessageContext = {
       operation: 'draft',
       workspaceRoot: '/workspace/deepseek-gui',
-      relativePath: '.kunsdd/plan/feature.md',
+      relativePath: '.xiaoyuansdd/plan/feature.md',
       planId: 'plan-1',
       sourceRequest: 'feature'
     }
@@ -120,7 +120,7 @@ describe('chat-store-thread-actions queued messages', () => {
         guiPlan: {
           operation: 'draft',
           workspaceRoot: '/workspace/deepseek-gui',
-          relativePath: '.kunsdd/plan/one.md',
+          relativePath: '.xiaoyuansdd/plan/one.md',
           planId: 'plan-1'
         }
       },

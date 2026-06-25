@@ -84,8 +84,8 @@ const launch: ClawScheduleMcpLaunchConfig = {
 
 describe('claw schedule MCP config', () => {
   it('uses Kun config files by default', () => {
-    expect(resolveKunConfigPath()).toBe(join(homedir(), '.kun', 'config.toml'))
-    expect(resolveKunMcpJsonPath()).toBe(join(homedir(), '.kun', 'mcp.json'))
+    expect(resolveKunConfigPath()).toBe(join(homedir(), '.xiaoyuan', 'config.toml'))
+    expect(resolveKunMcpJsonPath()).toBe(join(homedir(), '.xiaoyuan', 'mcp.json'))
     expect(resolveDeepseekConfigPath()).toBe(resolveKunConfigPath())
   })
 
@@ -188,7 +188,7 @@ describe('claw schedule MCP config', () => {
 
   it('syncs mcp.json and cleans the old config.toml entry on disk', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ds-gui-mcp-'))
-    const kunDir = join(root, '.kun')
+    const kunDir = join(root, '.xiaoyuan')
     const configTomlPath = join(kunDir, 'config.toml')
     const mcpJsonPath = join(kunDir, 'mcp.json')
     await mkdir(kunDir, { recursive: true })

@@ -4,8 +4,8 @@ import { buildWorkspaceProjectPickerOptions } from './WorkspaceProjectPicker'
 describe('WorkspaceProjectPicker options', () => {
   it('groups remembered worktree roots under their source project', () => {
     const projectPath = '/Users/zxy/code/Kook-VoiceShop-Bot'
-    const worktree38e2 = '/Users/zxy/.kun/worktrees/38e2/Kook-VoiceShop-Bot'
-    const worktreePython = '/Users/zxy/.kun/worktrees/python/Kook-VoiceShop-Bot'
+    const worktree38e2 = '/Users/zxy/.xiaoyuan/worktrees/38e2/Kook-VoiceShop-Bot'
+    const worktreePython = '/Users/zxy/.xiaoyuan/worktrees/python/Kook-VoiceShop-Bot'
     const { currentRoot, options } = buildWorkspaceProjectPickerOptions({
       currentWorkspaceRoot: worktree38e2,
       workspaceRoots: [
@@ -13,7 +13,7 @@ describe('WorkspaceProjectPicker options', () => {
         worktree38e2,
         worktreePython,
         '/Users/zxy/code/DeepSeek-GUI',
-        '~/.kun/write_workspace'
+        '~/.xiaoyuan/write_workspace'
       ],
       threadWorktrees: {
         'thread-38e2': {

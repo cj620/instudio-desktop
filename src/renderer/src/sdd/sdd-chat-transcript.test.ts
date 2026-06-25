@@ -6,12 +6,12 @@ import {
 } from './sdd-chat-transcript'
 
 const UUID = '123e4567-e89b-12d3-a456-426614174000'
-const DRAFT = `.kunsdd/requirements/${UUID}/requirement.md`
+const DRAFT = `.xiaoyuansdd/requirements/${UUID}/requirement.md`
 
 describe('sddChatTranscriptRelativePath', () => {
   it('builds the chat file path inside the requirement unit', () => {
     expect(sddChatTranscriptRelativePath(DRAFT, 'thr_abc-123')).toBe(
-      `.kunsdd/requirements/${UUID}/chat/thr_abc-123.md`
+      `.xiaoyuansdd/requirements/${UUID}/chat/thr_abc-123.md`
     )
   })
 
@@ -19,7 +19,7 @@ describe('sddChatTranscriptRelativePath', () => {
     expect(sddChatTranscriptRelativePath(DRAFT, '../escape')).toBeNull()
     expect(sddChatTranscriptRelativePath(DRAFT, 'a/b')).toBeNull()
     expect(sddChatTranscriptRelativePath(DRAFT, '  ')).toBeNull()
-    expect(sddChatTranscriptRelativePath('.kunsdd/draft/x/requirement.md', 'thr_1')).toBeNull()
+    expect(sddChatTranscriptRelativePath('.xiaoyuansdd/draft/x/requirement.md', 'thr_1')).toBeNull()
   })
 })
 

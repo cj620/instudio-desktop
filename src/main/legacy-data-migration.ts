@@ -34,12 +34,12 @@ export type MigrationLogger = (message: string, detail?: unknown) => void
 export const LEGACY_USER_DATA_DIR_NAMES = ['DeepSeek GUI', 'deepseek-gui'] as const
 
 export const LEGACY_HOME_DATA_ROOT = '.deepseekgui'
-export const NEW_HOME_DATA_ROOT = '.kun'
+export const NEW_HOME_DATA_ROOT = '.xiaoyuan'
 
 export type HomeDataMigrationMapping = {
   /** 相对 home 的旧路径段,如 ['.deepseekgui', 'kun'] */
   legacySegments: readonly string[]
-  /** 相对 home 的新路径段,如 ['.kun', 'data'] */
+  /** 相对 home 的新路径段,如 ['.xiaoyuan', 'data'] */
   nextSegments: readonly string[]
 }
 
@@ -49,7 +49,7 @@ export type HomeDataMigrationMapping = {
  * 指向它们的路径也不会被重写。
  */
 export const HOME_DATA_MIGRATION_MAPPINGS: readonly HomeDataMigrationMapping[] = [
-  // kun 运行时数据(sqlite、线程、config.json)。新家叫 data,避免 ~/.kun/kun。
+  // kun 运行时数据(sqlite、线程、config.json)。新家叫 data,避免 ~/.xiaoyuan/kun。
   { legacySegments: [LEGACY_HOME_DATA_ROOT, 'kun'], nextSegments: [NEW_HOME_DATA_ROOT, 'data'] },
   { legacySegments: [LEGACY_HOME_DATA_ROOT, 'default_workspace'], nextSegments: [NEW_HOME_DATA_ROOT, 'default_workspace'] },
   { legacySegments: [LEGACY_HOME_DATA_ROOT, 'claw'], nextSegments: [NEW_HOME_DATA_ROOT, 'claw'] },

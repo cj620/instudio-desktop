@@ -88,7 +88,7 @@ export function resolveSddMarkdownImagePath(
   const raw = markdownPath.trim().replaceAll('\\', '/')
   if (!raw || raw.startsWith('/')) return null
   const direct = normalizeSddRelativePath(raw)
-  if (direct.startsWith('.kunsdd/')) return normalizeRelativeParts(direct.split('/'))
+  if (direct.startsWith('.xiaoyuansdd/')) return normalizeRelativeParts(direct.split('/'))
   return normalizeRelativeParts([...dirname(draftRelativePath).split('/'), ...raw.split('/')])
 }
 

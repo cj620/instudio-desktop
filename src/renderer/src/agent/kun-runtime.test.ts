@@ -383,8 +383,8 @@ describe('KunRuntimeProvider', () => {
       guiPlan: {
         operation: 'refine',
         workspaceRoot: '/workspace/deepseek-gui',
-        relativePath: '.kunsdd/plan/auth.md',
-        planId: '/workspace/deepseek-gui:.kunsdd/plan/auth.md',
+        relativePath: '.xiaoyuansdd/plan/auth.md',
+        planId: '/workspace/deepseek-gui:.xiaoyuansdd/plan/auth.md',
         sourceRequest: 'Add auth',
         title: 'auth'
       }
@@ -402,8 +402,8 @@ describe('KunRuntimeProvider', () => {
         guiPlan: {
           operation: 'refine',
           workspaceRoot: '/workspace/deepseek-gui',
-          relativePath: '.kunsdd/plan/auth.md',
-          planId: '/workspace/deepseek-gui:.kunsdd/plan/auth.md',
+          relativePath: '.xiaoyuansdd/plan/auth.md',
+          planId: '/workspace/deepseek-gui:.xiaoyuansdd/plan/auth.md',
           sourceRequest: 'Add auth',
           title: 'auth'
         }

@@ -37,11 +37,11 @@ import {
 
 export type { AppSettingsV1 }
 
-// 数据默认根目录从 ~/.deepseekgui 升级为 ~/.kun。老安装的既有目录由
+// 数据默认根目录从 ~/.deepseekgui 升级为 ~/.xiaoyuan。老安装的既有目录由
 // legacy-data-migration.ts 在启动期搬迁并留兼容链接;settings 里存的旧
 // 绝对路径也在那里按迁移结果重写,这里只负责“新值”。
-const DEFAULT_WORKSPACE_ROOT = join(homedir(), '.kun', 'default_workspace')
-const DEFAULT_CLAW_CHANNELS_ROOT = join(homedir(), '.kun', 'claw')
+const DEFAULT_WORKSPACE_ROOT = join(homedir(), '.xiaoyuan', 'default_workspace')
+const DEFAULT_CLAW_CHANNELS_ROOT = join(homedir(), '.xiaoyuan', 'claw')
 const DEFAULT_WRITE_WORKSPACE_ROOT_ABSOLUTE = expandHomePath(DEFAULT_WRITE_WORKSPACE_ROOT)
 const SETTINGS_FILE_NAME = 'kun-settings.json'
 // 旧版设置文件名。userData 整目录迁移后旧文件会原样留在新目录里,

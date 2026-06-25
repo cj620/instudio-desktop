@@ -197,7 +197,7 @@ export async function requestWriteInfographic(
     // directory from the same canonical root to keep the relative link clean.
     // dirname(imageDir) only equals the root for single-segment dirs, so
     // canonicalize the root itself (covers nested dirs like the per-
-    // requirement '.kunsdd/requirements/<id>/img').
+    // requirement '.xiaoyuansdd/requirements/<id>/img').
     const canonicalRoot = await canonicalPath(workspaceRoot)
     const documentDir = join(canonicalRoot, dirname(relativeToRoot))
     markdownPath = normalizePathSeparators(relative(documentDir, absolutePath))

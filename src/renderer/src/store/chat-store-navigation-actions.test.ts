@@ -64,7 +64,7 @@ function buildHarness(overrides?: {
     applyI18nFromSettings,
     busy: false,
     clawChannels: [],
-    codeWorkspaceRoots: ['~/.kun/default_workspace'],
+    codeWorkspaceRoots: ['~/.xiaoyuan/default_workspace'],
     composerPickList: [],
     createThread,
     currentTurnId: null,
@@ -83,13 +83,13 @@ function buildHarness(overrides?: {
       thread({
         id: 'thr_default',
         title: 'Only default thread',
-        workspace: '~/.kun/default_workspace'
+        workspace: '~/.xiaoyuan/default_workspace'
       })
     ],
     unreadThreadIds: {},
     watchTurnCompletion: {},
     workspaceLabel: 'default_workspace',
-    workspaceRoot: '~/.kun/default_workspace'
+    workspaceRoot: '~/.xiaoyuan/default_workspace'
   } as unknown as ChatState
 
   const set: ChatStoreSet = (partial) => {
@@ -147,11 +147,11 @@ describe('chat-store navigation workspace selection', () => {
 
     await expect(harness.actions.chooseWorkspace()).resolves.toBe('/Users/zxy/new-project')
 
-    expect(pickWorkspaceDirectory).toHaveBeenCalledWith('~/.kun/default_workspace')
+    expect(pickWorkspaceDirectory).toHaveBeenCalledWith('~/.xiaoyuan/default_workspace')
     expect(setSettings).toHaveBeenCalledWith({ workspaceRoot: '/Users/zxy/new-project' })
     expect(provider.updateThreadWorkspace).not.toHaveBeenCalled()
     expect(harness.state.threads.find((item) => item.id === 'thr_default')?.workspace)
-      .toBe('~/.kun/default_workspace')
+      .toBe('~/.xiaoyuan/default_workspace')
     expect(harness.createThread).toHaveBeenCalledWith({ workspaceRoot: '/Users/zxy/new-project' })
     expect(harness.selectThread).not.toHaveBeenCalled()
   })
@@ -217,10 +217,10 @@ describe('onClawChannelActivity routes through subscribeThreadEventsLive (not se
       return () => {}
     })
     const getSettings = vi.fn(async () => ({
-      workspaceRoot: '~/.kun/default_workspace',
+      workspaceRoot: '~/.xiaoyuan/default_workspace',
       write: {
-        defaultWorkspaceRoot: '~/.kun/default_workspace',
-        activeWorkspaceRoot: '~/.kun/default_workspace',
+        defaultWorkspaceRoot: '~/.xiaoyuan/default_workspace',
+        activeWorkspaceRoot: '~/.xiaoyuan/default_workspace',
         workspaces: []
       },
       claw: {

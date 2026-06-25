@@ -55,7 +55,7 @@ describe('sdd-draft-store', () => {
 
     useSddDraftStore.getState().setActiveDraft(draft, '# Requirement')
 
-    expect(draft.id).toBe('/tmp/app:.kunsdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md')
+    expect(draft.id).toBe('/tmp/app:.xiaoyuansdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md')
     expect(readRememberedSddDraft('/tmp/app')?.id).toBe(draft.id)
     expect(readRememberedSddDraft('/tmp/other')).toBeNull()
   })
@@ -108,7 +108,7 @@ describe('sdd-draft-store', () => {
       drafts: {
         valid: {
           workspaceRoot: '/tmp/valid/',
-          relativePath: '.kunsdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+          relativePath: '.xiaoyuansdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
           createdAt: '2026-01-01T00:00:00.000Z'
         },
         invalid: {
@@ -122,7 +122,7 @@ describe('sdd-draft-store', () => {
     expect(readRememberedSddDraft('/tmp/valid')).toMatchObject({
       id: 'valid',
       workspaceRoot: '/tmp/valid',
-      relativePath: '.kunsdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      relativePath: '.xiaoyuansdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       updatedAt: '2026-01-01T00:00:00.000Z'
     })
     expect(readRememberedSddDraft('/tmp/missing')).toBeNull()
@@ -196,7 +196,7 @@ describe('sdd-draft-store', () => {
   it('saves the active draft to disk and updates clean state', async () => {
     const writeWorkspaceFile = vi.fn().mockResolvedValue({
       ok: true,
-      path: '/tmp/app/.kunsdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      path: '/tmp/app/.xiaoyuansdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       savedAt: '2026-01-01T00:00:00.000Z'
     })
     window.kunGui.writeWorkspaceFile = writeWorkspaceFile
@@ -212,7 +212,7 @@ describe('sdd-draft-store', () => {
 
     expect(writeWorkspaceFile).toHaveBeenCalledWith({
       workspaceRoot: '/tmp/app',
-      path: '.kunsdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      path: '.xiaoyuansdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       content: '# Draft updated'
     })
     expect(useSddDraftStore.getState()).toMatchObject({
@@ -225,7 +225,7 @@ describe('sdd-draft-store', () => {
   it('deletes a draft folder and clears the active remembered draft', async () => {
     const deleteWorkspaceEntry = vi.fn().mockResolvedValue({
       ok: true,
-      path: '/tmp/app/.kunsdd/requirements/123e4567-e89b-12d3-a456-426614174000',
+      path: '/tmp/app/.xiaoyuansdd/requirements/123e4567-e89b-12d3-a456-426614174000',
       deletedAt: '2026-01-01T00:00:00.000Z'
     })
     window.kunGui.deleteWorkspaceEntry = deleteWorkspaceEntry
@@ -240,7 +240,7 @@ describe('sdd-draft-store', () => {
 
     expect(deleteWorkspaceEntry).toHaveBeenCalledWith({
       workspaceRoot: '/tmp/app',
-      path: '.kunsdd/requirements/123e4567-e89b-12d3-a456-426614174000'
+      path: '.xiaoyuansdd/requirements/123e4567-e89b-12d3-a456-426614174000'
     })
     expect(readRememberedSddDraft('/tmp/app')).toBeNull()
     expect(readRememberedSddDraftContent(draft)).toBeNull()
@@ -268,13 +268,13 @@ describe('sdd-draft-store', () => {
     const draft = createSddDraft({
       id: '123e4567-e89b-12d3-a456-426614174000',
       workspaceRoot: '/tmp/app',
-      absolutePath: '/tmp/app/.kunsdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      absolutePath: '/tmp/app/.xiaoyuansdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       now: 1
     })
     useSddDraftStore.getState().setActiveDraft(draft, '# Draft')
 
     await expect(syncActiveSddDraftFromDisk({
-      path: '/tmp/app/.kunsdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      path: '/tmp/app/.xiaoyuansdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       content: '# Draft updated by AI',
       size: 21,
       truncated: false
@@ -291,14 +291,14 @@ describe('sdd-draft-store', () => {
     const draft = createSddDraft({
       id: '123e4567-e89b-12d3-a456-426614174000',
       workspaceRoot: '/tmp/app',
-      absolutePath: '/tmp/app/.kunsdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      absolutePath: '/tmp/app/.xiaoyuansdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       now: 1
     })
     useSddDraftStore.getState().setActiveDraft(draft, '# Draft')
     useSddDraftStore.getState().setContent('# Local unsaved draft')
 
     await expect(syncActiveSddDraftFromDisk({
-      path: '/tmp/app/.kunsdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      path: '/tmp/app/.xiaoyuansdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       content: '# External draft',
       size: 16,
       truncated: false

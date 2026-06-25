@@ -13,7 +13,7 @@ import { seedUiPlugin, uiPluginsRootDir } from './services/ui-plugin-service'
 
 /**
  * 预装 UI 插件:iKun 模式就是形象工坊的官方示例插件,
- * 首次启动时自动安装进 ~/.kun/ui-plugins/ikun/。
+ * 首次启动时自动安装进 ~/.xiaoyuan/ui-plugins/ikun/。
  * 安装只做一次(种子标记),用户删掉后不会被强行复活。
  */
 

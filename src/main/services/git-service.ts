@@ -74,7 +74,7 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 function resolveBranchWorktreeRoot(worktreeRoot?: string): string {
-  return worktreeRoot?.trim() || join(homedir(), '.kun', 'worktrees')
+  return worktreeRoot?.trim() || join(homedir(), '.xiaoyuan', 'worktrees')
 }
 
 async function allocateBranchWorktreePath(

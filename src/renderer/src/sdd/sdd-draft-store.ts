@@ -120,7 +120,7 @@ function normalizeDraft(raw: unknown, fallbackId = ''): SddDraft | null {
   const workspaceRoot = normalizeWorkspaceRoot(normalizeText(raw.workspaceRoot))
   const relativePath = normalizeSddRelativePath(normalizeText(raw.relativePath))
   if (!id || !workspaceRoot || !relativePath) return null
-  // Pre-unit-layout registry entries (.kunsdd/draft/...) are retired here in
+  // Pre-unit-layout registry entries (.xiaoyuansdd/draft/...) are retired here in
   // one place: dropping the draft also drops its activeByWorkspace pointer
   // and content snapshot downstream.
   if (!isSddDraftRelativePath(relativePath)) return null

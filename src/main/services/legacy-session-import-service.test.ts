@@ -58,7 +58,7 @@ describe('detectLegacySessions', () => {
     const coreagentThreads = join(root, '.deepseekgui', 'coreagent', 'threads')
     await writeThread(coreagentThreads, 'thr_c')
     // One of the kun threads already exists in the destination.
-    const dataDir = join(root, '.kun', 'data')
+    const dataDir = join(root, '.xiaoyuan', 'data')
     await writeThread(join(dataDir, 'threads'), 'thr_a')
 
     const detection = await detectLegacySessions({ homeDir: root, destDataDir: dataDir })
@@ -75,7 +75,7 @@ describe('detectLegacySessions', () => {
     await writeThread(join(root, '.deepseekgui', 'kun', 'threads'), 'thr_a')
     const detection = await detectLegacySessions({
       homeDir: root,
-      destDataDir: join(root, '.kun', 'data')
+      destDataDir: join(root, '.xiaoyuan', 'data')
     })
     expect(detection.sources.map((s) => s.kind)).toEqual(['kun'])
   })
@@ -87,7 +87,7 @@ describe('importLegacySessions', () => {
     await writeThread(join(root, '.deepseekgui', 'kun', 'threads'), 'thr_a')
     await writeThread(join(root, '.deepseekgui', 'kun', 'threads'), 'thr_b')
     await writeThread(join(root, '.deepseekgui', 'coreagent', 'threads'), 'thr_c')
-    const dataDir = join(root, '.kun', 'data')
+    const dataDir = join(root, '.xiaoyuan', 'data')
 
     const summary = await importLegacySessions({ homeDir: root, destDataDir: dataDir })
 
@@ -102,7 +102,7 @@ describe('importLegacySessions', () => {
   it('never overwrites a thread that already exists in the destination', async () => {
     const root = await makeTempRoot()
     await writeThread(join(root, '.deepseekgui', 'kun', 'threads'), 'thr_a', 'legacy title')
-    const dataDir = join(root, '.kun', 'data')
+    const dataDir = join(root, '.xiaoyuan', 'data')
     await writeThread(join(dataDir, 'threads'), 'thr_a', 'current title')
 
     const summary = await importLegacySessions({ homeDir: root, destDataDir: dataDir })
@@ -118,7 +118,7 @@ describe('importLegacySessions', () => {
     // User picks the parent (…/backup/kun), not the threads dir itself.
     const pickedParent = join(root, 'backup', 'kun')
     await writeThread(join(pickedParent, 'threads'), 'thr_x')
-    const dataDir = join(root, '.kun', 'data')
+    const dataDir = join(root, '.xiaoyuan', 'data')
 
     const summary = await importLegacySessions({
       homeDir: root,
@@ -142,7 +142,7 @@ describe('importLegacySessions', () => {
     const oddDir = join(source, 'session-1')
     await mkdir(oddDir, { recursive: true })
     await writeFile(join(oddDir, 'thread.json'), '{"id":"session-1","title":"x","turns":[]}', 'utf8')
-    const dataDir = join(root, '.kun', 'data')
+    const dataDir = join(root, '.xiaoyuan', 'data')
 
     const summary = await importLegacySessions({
       homeDir: root,
@@ -158,7 +158,7 @@ describe('importLegacySessions', () => {
     const root = await makeTempRoot()
     const summary = await importLegacySessions({
       homeDir: root,
-      destDataDir: join(root, '.kun', 'data')
+      destDataDir: join(root, '.xiaoyuan', 'data')
     })
     expect(summary).toMatchObject({ total: 0, imported: 0, skipped: 0 })
   })

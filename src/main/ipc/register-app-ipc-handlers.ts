@@ -797,7 +797,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   })
 
   ipcMain.handle('ui-plugin:list', async () => {
-    const kunHomeDir = join(homedir(), '.kun')
+    const kunHomeDir = join(homedir(), '.xiaoyuan')
     await ensureBundledUiPlugins(kunHomeDir)
     return { plugins: await listUiPlugins(kunHomeDir) }
   })
@@ -815,7 +815,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     if (picked.canceled || !sourceDir) {
       return { canceled: true as const }
     }
-    const result = await installUiPluginFromDirectory(join(homedir(), '.kun'), sourceDir)
+    const result = await installUiPluginFromDirectory(join(homedir(), '.xiaoyuan'), sourceDir)
     if (!result.ok) {
       return { canceled: false as const, ok: false as const, errors: result.errors }
     }
@@ -824,12 +824,12 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
 
   ipcMain.handle('ui-plugin:remove', async (_, payload: unknown) => {
     const request = parseIpcPayload('ui-plugin:remove', uiPluginIdPayloadSchema, payload)
-    return { ok: await removeUiPlugin(join(homedir(), '.kun'), request.id) }
+    return { ok: await removeUiPlugin(join(homedir(), '.xiaoyuan'), request.id) }
   })
 
   ipcMain.handle('ui-plugin:load', async (_, payload: unknown) => {
     const request = parseIpcPayload('ui-plugin:load', uiPluginIdPayloadSchema, payload)
-    const kunHomeDir = join(homedir(), '.kun')
+    const kunHomeDir = join(homedir(), '.xiaoyuan')
     await ensureBundledUiPlugins(kunHomeDir)
     return loadUiPluginFigures(kunHomeDir, request.id)
   })
