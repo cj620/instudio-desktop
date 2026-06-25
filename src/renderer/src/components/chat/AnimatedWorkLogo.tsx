@@ -2,9 +2,10 @@ import type { ReactElement } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { UiPluginFigureSlot } from '@shared/ui-plugin'
 import { useUiPluginFigure } from '../../store/ui-plugin-store'
-// 临时方案:默认形象统一改用小元幽灵静态图(kun.png)。旧蓝鸟多姿态美术(kun_bird/greet/sleep/sit/surf.png)
-// 仍保留在 asset/img 下,等小元的多姿态素材就绪后,把下面五个别名换回对应的姿态图即可恢复动画。
-import kunGhostFigure from '../../../../asset/img/kun.png'
+// 临时方案:默认形象统一改用小元幽灵静态图(kun_mascot.png — 由 App 图标 kun.png 裁掉透明边距而来,
+// 避免显示框里留白过多导致形象偏小)。旧蓝鸟多姿态美术(kun_bird/greet/sleep/sit/surf.png)仍保留在
+// asset/img 下,等小元的多姿态素材就绪后,把下面五个别名换回对应的姿态图即可恢复动画。
+import kunGhostFigure from '../../../../asset/img/kun_mascot.png'
 const kunLogo = kunGhostFigure
 const kunSurfFigure = kunGhostFigure
 const kunGreetFigure = kunGhostFigure

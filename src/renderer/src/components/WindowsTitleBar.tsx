@@ -7,7 +7,8 @@ import {
   type KeyboardShortcutBindingsV1,
   type KeyboardShortcutCommandId
 } from '@shared/keyboard-shortcuts'
-import kunLogo from '../../../asset/img/kun.png'
+// 标题栏 logo 用紧贴轮廓的吉祥物图(kun_mascot.png),而非带大块透明边距的 App 图标 kun.png,否则显得偏小
+import kunLogo from '../../../asset/img/kun_mascot.png'
 import { useKeyboardShortcutSettings } from '../lib/keyboard-shortcut-settings'
 import { useChatStore } from '../store/chat-store'
 

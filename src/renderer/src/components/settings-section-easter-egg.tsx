@@ -3,8 +3,8 @@ import { useEffect, useState } from 'react'
 import { BookOpen, FolderPlus, Palette, Trash2 } from 'lucide-react'
 import { UI_MODE_DEFAULT, UI_MODE_RETROMA } from '../lib/ui-mode'
 import { useUiPluginStore } from '../store/ui-plugin-store'
-// 默认形象临时使用小元幽灵静态图(kun.png);旧蓝鸟见 AnimatedWorkLogo.tsx 的说明
-import kunDefaultFigure from '../../../asset/img/kun.png'
+// 默认形象临时使用小元幽灵紧贴轮廓图(kun_mascot.png);来历见 AnimatedWorkLogo.tsx 的说明
+import kunDefaultFigure from '../../../asset/img/kun_mascot.png'
 import { SettingsCard, SettingRow } from './settings-controls'
 
 type ModeCard = {
