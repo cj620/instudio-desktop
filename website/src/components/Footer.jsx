@@ -1,5 +1,4 @@
 import { useLang } from '../LangContext.jsx'
-import { LINKS } from '../content.js'
 import logo from '../assets/logo.png'
 
 export default function Footer() {
@@ -30,9 +29,8 @@ export default function Footer() {
           <div>
             <h4 className="text-sm font-semibold text-white">{t.footer.colResources}</h4>
             <ul className="mt-4 space-y-3 text-sm text-slate-400">
-              <li><a href={LINKS.github} target="_blank" rel="noreferrer" className="hover:text-white">GitHub</a></li>
+              <li><a href="#paradigm" className="hover:text-white">{t.nav.paradigm}</a></li>
               <li><a href="#download" className="hover:text-white">{t.footer.releases}</a></li>
-              <li><a href={LINKS.docs} target="_blank" rel="noreferrer" className="hover:text-white">{t.footer.docs}</a></li>
             </ul>
           </div>
         </div>

@@ -1,6 +1,5 @@
 import { useLang } from '../LangContext.jsx'
 import { useDownload } from '../DownloadContext.jsx'
-import { LINKS } from '../content.js'
 import mascot from '../assets/mascot.png'
 
 export default function Hero() {
@@ -41,9 +40,6 @@ export default function Hero() {
             >
               {t.hero.ctaDownload} ↓
             </button>
-            <a href={LINKS.github} target="_blank" rel="noreferrer" className="btn-ghost">
-              {t.hero.ctaGithub}
-            </a>
           </div>
           <p className="mt-5 text-sm text-slate-500">{t.hero.note}</p>
         </div>
