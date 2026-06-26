@@ -4,7 +4,6 @@ import type { EditorInfo } from '@shared/editor'
 import type { GuiUpdateState } from '@shared/gui-update'
 import {
   ArrowUpCircle,
-  Bot,
   Check,
   ChevronDown,
   Code2,
@@ -14,6 +13,7 @@ import {
   FileEdit,
   Folders,
   FolderOpen,
+  Ghost,
   Globe2,
   ListTodo,
   Loader2,
@@ -89,7 +89,7 @@ export function WorkbenchTopBar({
     ...(planPanelEnabled ? [{ mode: 'plan' as const, label: t('rightPanelPlan'), icon: ClipboardList }] : []),
     { mode: 'changes' as const, label: t('rightPanelChanges'), icon: FileEdit },
     { mode: 'browser' as const, label: t('rightPanelBrowser'), icon: Globe2 },
-    { mode: 'subagents' as const, label: t('rightPanelSubagents'), icon: Bot }
+    { mode: 'subagents' as const, label: t('rightPanelSubagents'), icon: Ghost }
   ]
   const selectedEditor = useMemo(
     () => editors.find((editor) => editor.id === selectedEditorId) ?? editors[0],

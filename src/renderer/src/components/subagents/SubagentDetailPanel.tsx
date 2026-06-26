@@ -2,7 +2,7 @@ import type { Dispatch, ReactElement, ReactNode, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import { Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Pencil, Plug, Plus, Power, Search, Sparkles, Trash2, Wrench, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Ghost, Pencil, Plug, Plus, Power, Search, Sparkles, Trash2, Wrench, X } from 'lucide-react'
 import type { KunSubagentProfileV1, KunSubagentsSettingsV1, ModelReasoningEffort, ModelProviderModelProfileV1 } from '@shared/app-settings'
 import type { ModelProviderModelGroup } from '@shared/kun-gui-api'
 import { KUN_RUNTIME_TOOLS_PATH } from '@shared/kun-endpoints'
@@ -284,7 +284,7 @@ export function SubagentDetailPanel({ className, onCollapse }: Props): ReactElem
             ? t(`subagentsPanel.role.${p.id}.desc`, p.description ?? '')
             : (p.description ?? '')
           return (
-            <Row key={p.id} roleId={p.id} disabled={!p.enabled} builtin={builtin} name={name} desc={desc}>
+            <Row key={p.id} roleId={p.id} color={p.color} disabled={!p.enabled} builtin={builtin} name={name} desc={desc}>
               <ModelSelect
                 value={p.model ?? ''}
                 providerId={p.providerId ?? ''}
@@ -420,7 +420,7 @@ export function SubagentDetailPanel({ className, onCollapse }: Props): ReactElem
 function PanelHeader({ t, onCollapse }: { t: TFunction<'common'>; onCollapse: () => void }): ReactElement {
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-ds-border px-4 py-3.5">
-      <Bot className="h-[17px] w-[17px] text-accent" strokeWidth={2} />
+      <Ghost className="h-[17px] w-[17px] text-accent" strokeWidth={2} />
       <b className="text-[14px] font-semibold text-ds-heading">{t('subagents', 'Subagents')}</b>
       <span className="text-[11px] text-ds-faint">· {t('subagentsPanel.configModel', 'configure model')}</span>
       <button
@@ -446,6 +446,7 @@ function GroupLabel({ children }: { children: ReactNode }): ReactElement {
 
 function Row({
   roleId,
+  color,
   disabled = false,
   builtin = false,
   name,
@@ -453,6 +454,7 @@ function Row({
   children
 }: {
   roleId: string
+  color?: string
   disabled?: boolean
   builtin?: boolean
   name: string
@@ -460,11 +462,14 @@ function Row({
   children: ReactNode
 }): ReactElement {
   const { t } = useTranslation('common')
+  // Per-agent colour tints the avatar disc behind the shared 小元 ghost so a
+  // row of agents stays distinguishable. Hex8 alpha suffixes keep it subtle.
+  const accent = color || '#3b82d8'
   return (
     <div className={`mx-2 flex items-center gap-3 rounded-xl px-2.5 py-2.5 transition hover:bg-ds-hover/60 ${disabled ? 'opacity-60' : ''}`}>
       <span
         className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full"
-        style={{ background: 'radial-gradient(circle at 50% 36%, #fff 0%, rgba(238,244,251,0.9) 78%)', boxShadow: 'inset 0 0 0 1px rgba(188,214,245,0.7)' }}
+        style={{ background: `radial-gradient(circle at 50% 34%, #ffffff 0%, ${accent}26 82%)`, boxShadow: `inset 0 0 0 1px ${accent}73` }}
       >
         <AgentKun id={roleId} disabled={disabled} className="h-9 w-9" />
       </span>
@@ -742,7 +747,7 @@ function ProfileDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl border border-ds-border bg-ds-main shadow-2xl">
         <div className="flex items-center gap-2 border-b border-ds-border px-4 py-3">
-          <Bot className="h-4 w-4 text-ds-muted" />
+          <Ghost className="h-4 w-4 text-ds-muted" />
           <span className="text-sm font-semibold text-ds-heading">
             {isNew ? t('subagentsPanel.newSubagent', 'New subagent') : t('agentsView.editAgent', 'Edit agent')}
           </span>

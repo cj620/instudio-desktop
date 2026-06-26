@@ -1,27 +1,17 @@
 import type { ReactElement } from 'react'
-import kunClip from '../../../../asset/img/kun_clip.png'
-import kunSearch from '../../../../asset/img/kun_search.png'
-import kunLaptop from '../../../../asset/img/kun_laptop.png'
-import kunMagic from '../../../../asset/img/kun_magic.png'
-import kunCheer from '../../../../asset/img/kun_cheer.png'
-import kunHeadset from '../../../../asset/img/kun_headset.png'
-import kunWrench from '../../../../asset/img/kun_wrench.png'
-import kunRest from '../../../../asset/img/kun_rest.png'
+import kunGhost from '../../../../asset/img/kun_mascot.png'
 
 /**
- * Animated kun mascot avatar. Each role id maps to a distinct real kun PNG pose
- * with a per-role CSS animation (float / sway / breathe / bob). Disabled rows
- * render the resting kun in grayscale.
+ * 小元 ghost mascot avatar. Every role renders the same 小元 ghost figure;
+ * per-role distinction comes from the coloured disc the caller draws *behind*
+ * it (the profile's `color` in the subagents panel, a status/hash tint in the
+ * delegation card). Each role id keeps a distinct subtle CSS motion
+ * (float / sway / breathe / bob) so a row of agents still feels alive.
+ * Disabled rows render the ghost in grayscale with no motion.
  *
- * Pose map:
- *   design-reviewer            → kun_clip    (写字板·审查,  bob)
- *   over-engineering-reviewer  → kun_search  (放大镜·审视,  float)
- *   code-review                → kun_laptop  (笔记本·看代码, breathe)
- *   compaction                 → kun_magic   (魔法棒·压缩,  sway)
- *   title                      → kun_cheer   (庆祝·命名,    bob)
- *   summary                    → kun_headset (耳麦·复述,    float)
- *   custom / fallback          → kun_wrench  (工具·自定义,  breathe)
- *   disabled                   → kun_rest    (抱枕睡, grayscale, no motion)
+ * Single-pose stopgap (matches AnimatedWorkLogo): there is currently only one
+ * 小元 ghost figure (kun_mascot.png), so all roles alias to it. If multi-pose
+ * 小元 art is ever produced, map role ids to distinct figures in FIGURE below.
  */
 
 type Anim = 'float' | 'sway' | 'breathe' | 'bob'
@@ -51,23 +41,24 @@ function ensureStyle(): void {
   document.head.appendChild(el)
 }
 
-const POSE: Record<string, { src: string; anim: Anim }> = {
-  general: { src: kunLaptop, anim: 'breathe' },
-  explore: { src: kunSearch, anim: 'float' },
-  'design-reviewer': { src: kunClip, anim: 'bob' },
-  'over-engineering-reviewer': { src: kunWrench, anim: 'sway' },
-  'code-review': { src: kunClip, anim: 'breathe' },
-  compaction: { src: kunMagic, anim: 'sway' },
-  title: { src: kunCheer, anim: 'bob' },
-  summary: { src: kunHeadset, anim: 'float' }
+// Per-role motion. Same 小元 ghost figure, distinct sway so a list reads alive.
+const ANIM: Record<string, Anim> = {
+  general: 'breathe',
+  explore: 'float',
+  'design-reviewer': 'bob',
+  'over-engineering-reviewer': 'sway',
+  'code-review': 'breathe',
+  compaction: 'sway',
+  title: 'bob',
+  summary: 'float'
 }
 
-const FALLBACK: { src: string; anim: Anim } = { src: kunWrench, anim: 'breathe' }
+const FALLBACK_ANIM: Anim = 'breathe'
 
 /**
- * @param id      role id (drives the pose); unknown ids → fallback (custom kun)
- * @param disabled when true, renders resting kun in grayscale with no motion
- * @param className sizing wrapper class (e.g. "h-10 w-10")
+ * @param id       role id (drives the motion); unknown ids → fallback motion
+ * @param disabled when true, renders the resting ghost in grayscale, no motion
+ * @param className sizing wrapper class (e.g. "h-9 w-9")
  */
 export function AgentKun({
   id,
@@ -75,7 +66,7 @@ export function AgentKun({
   className
 }: {
   id: string
-  /** Retained for API compatibility with old callers; unused (PNGs are fixed). */
+  /** Retained for API compatibility with old callers; the coloured disc is drawn by the wrapper. */
   color?: string
   disabled?: boolean
   className?: string
@@ -84,14 +75,14 @@ export function AgentKun({
   if (disabled) {
     return (
       <span className={`ds-agent-kun is-disabled ${className ?? ''}`}>
-        <img src={kunRest} alt="" aria-hidden="true" />
+        <img src={kunGhost} alt="" aria-hidden="true" />
       </span>
     )
   }
-  const pose = POSE[id] ?? FALLBACK
+  const anim = ANIM[id] ?? FALLBACK_ANIM
   return (
-    <span className={`ds-agent-kun ds-agent-kun-${pose.anim} ${className ?? ''}`}>
-      <img src={pose.src} alt="" aria-hidden="true" />
+    <span className={`ds-agent-kun ds-agent-kun-${anim} ${className ?? ''}`}>
+      <img src={kunGhost} alt="" aria-hidden="true" />
     </span>
   )
 }

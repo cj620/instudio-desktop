@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bot, ChevronDown } from 'lucide-react'
+import { ChevronDown, Ghost } from 'lucide-react'
 import type { KunSubagentProfileV1 } from '@shared/app-settings'
 import { rendererRuntimeClient } from '../../agent/runtime-client'
 import { useChatStore } from '../../store/chat-store'
@@ -81,7 +81,7 @@ export function FloatingComposerAgentPicker({ compact = false, disabled }: Props
         {active?.color ? (
           <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: active.color }} />
         ) : (
-          <Bot className="h-3.5 w-3.5" strokeWidth={1.75} />
+          <Ghost className="h-3.5 w-3.5" strokeWidth={1.75} />
         )}
         {!compact ? (
           <span className="max-w-[120px] truncate">{active ? active.name : 'Default'}</span>
@@ -96,7 +96,7 @@ export function FloatingComposerAgentPicker({ compact = false, disabled }: Props
             onClick={clearAgent}
             className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-ds-hover ${!composerAgentId ? 'bg-ds-subtle' : ''}`}
           >
-            <Bot className="h-4 w-4 text-ds-muted" strokeWidth={1.75} />
+            <Ghost className="h-4 w-4 text-ds-muted" strokeWidth={1.75} />
             <span className="flex-1 text-ds-ink">Default (runtime)</span>
           </button>
           {agents.length === 0 ? (
