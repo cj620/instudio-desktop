@@ -1,7 +1,9 @@
 // 纯前端仿真桌面端 UI,替代上游录屏 GIF。整窗占满容器宽度、多面板布局,贴近真实应用。
+// 滚动进入视口时,对话 / 工具卡片 / Todo / 预览逐条淡入(useInView + .anim-in)。
 // 配色与图标严格对齐桌面端真实暗色主题:
 //   主题 src/renderer/src/styles/base-shell.css [data-theme='dark'](夜间深海)
 //   图标 lucide-react,与 app 内 Sidebar / FloatingComposer / WriteInlineAgent 同款
+import { useEffect, useRef, useState } from 'react'
 import {
   Code2,
   Pencil,
@@ -44,43 +46,66 @@ import {
 } from 'lucide-react'
 import logo from '../assets/logo.png'
 
-// 桌面端真实暗色色板(夜间深海)
+// 桌面端真实暗色色板(夜间深海),含少量渐变增加层次
 const C = {
   app: '#0f1422',
+  barGrad: 'linear-gradient(180deg, #151d33 0%, #11172700 100%, #111726 100%)',
   bar: '#121829',
-  canvas: '#161d30',
-  canvas2: '#131a2b',
+  canvasGrad: 'linear-gradient(180deg, #1b243b 0%, #151c30 50%, #131a2b 100%)',
+  canvas2: '#11182a',
   border: 'rgba(151,192,235,0.13)',
   borderSoft: 'rgba(151,192,235,0.07)',
-  card: '#1b2338',
-  cardElevated: '#212b44',
-  cardBorder: 'rgba(151,192,235,0.12)',
+  card: '#1c2440',
+  cardElevated: '#222c48',
+  cardBorder: 'rgba(151,192,235,0.13)',
   text: '#f0f5fc',
-  text2: '#bdc9de',
-  text3: '#8593b1',
+  text2: '#c2cee2',
+  text3: '#8997b6',
   placeholder: '#76839e',
-  accent: '#6fb0e8',
+  accent: '#74b3ea',
   onAccent: '#0f1422',
-  active: 'rgba(111,176,232,0.18)',
-  chip: 'rgba(151,192,235,0.10)',
-  toggleBg: 'rgba(0,0,0,0.28)',
+  active: 'rgba(116,179,234,0.2)',
+  chip: 'rgba(151,192,235,0.11)',
+  toggleBg: 'rgba(0,0,0,0.3)',
   hover: 'rgba(151,192,235,0.08)',
-  userBubble: 'rgba(133,193,241,0.16)',
-  green: '#40c977',
-  greenSoft: 'rgba(64,201,119,0.15)',
+  userBubble: 'rgba(133,193,241,0.2)',
+  green: '#46cf7d',
+  greenSoft: 'rgba(64,201,119,0.16)',
   red: '#f8736a',
   redSoft: 'rgba(248,115,106,0.15)',
   skill: '#a89bf5',
-  selection: 'rgba(111,176,232,0.26)'
+  selection: 'rgba(116,179,234,0.28)'
 }
 
-function WindowFrame({ title, children }) {
+// 进入视口时返回 true,用于触发内部逐条淡入(只触发一次)
+function useInView(threshold = 0.2) {
+  const ref = useRef(null)
+  const [inView, setInView] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setInView(true)
+          io.disconnect()
+        }
+      },
+      { threshold }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [threshold])
+  return [ref, inView]
+}
+
+function WindowFrame({ title, children, innerRef }) {
   return (
-    <div className="relative">
+    <div ref={innerRef} className="relative">
       {/* 背后柔光,呼应真实截图的桌面壁纸氛围 */}
       <div
         aria-hidden
-        className="absolute -inset-x-10 -top-10 bottom-0 -z-10 rounded-[2.5rem] bg-gradient-to-b from-brand/20 via-indigo-500/10 to-transparent blur-3xl"
+        className="absolute -inset-x-10 -top-12 bottom-0 -z-10 rounded-[2.5rem] bg-gradient-to-b from-brand/30 via-indigo-500/12 to-transparent blur-3xl"
       />
       <div
         className="overflow-hidden rounded-xl border border-white/10 shadow-2xl shadow-black/70 ring-1 ring-black/40 sm:rounded-2xl"
@@ -89,7 +114,7 @@ function WindowFrame({ title, children }) {
         {/* 标题栏 */}
         <div
           className="flex items-center gap-2 border-b px-4 py-2.5"
-          style={{ background: C.bar, borderColor: C.border }}
+          style={{ background: C.barGrad, borderColor: C.border }}
         >
           <span className="h-3 w-3 rounded-full" style={{ background: '#ff5f57' }} />
           <span className="h-3 w-3 rounded-full" style={{ background: '#febc2e' }} />
@@ -121,11 +146,11 @@ function SideItem({ as: I, label, highlight }) {
   )
 }
 
-function ToolCard({ as: I, label, arg, running }) {
+function ToolCard({ as: I, label, arg, running, show, delay }) {
   return (
     <div
-      className="flex w-fit max-w-full items-center gap-2 rounded-lg border px-3 py-2"
-      style={{ background: C.card, borderColor: C.cardBorder }}
+      className={`flex w-fit max-w-full items-center gap-2 rounded-lg border px-3 py-2 ${show ? 'anim-in' : 'opacity-0'}`}
+      style={{ background: C.card, borderColor: C.cardBorder, animationDelay: `${delay}ms` }}
     >
       <Icon as={I} size={14} color={C.accent} />
       <span className="text-[12px] font-medium" style={{ color: C.text2 }}>
@@ -146,13 +171,13 @@ function ToolCard({ as: I, label, arg, running }) {
   )
 }
 
-function TodoItem({ label, state }) {
+function TodoItem({ label, state, show, delay }) {
   const done = state === 'done'
   const active = state === 'active'
   return (
     <div
-      className="flex items-center gap-2.5 rounded-lg px-2.5 py-2"
-      style={active ? { background: C.active } : undefined}
+      className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 ${show ? 'anim-in' : 'opacity-0'}`}
+      style={{ animationDelay: `${delay}ms`, ...(active ? { background: C.active } : null) }}
     >
       {done ? (
         <Check size={15} strokeWidth={2.6} style={{ color: C.green }} />
@@ -176,13 +201,14 @@ function TodoItem({ label, state }) {
 }
 
 export function OperationsMock() {
+  const [ref, show] = useInView()
   return (
-    <WindowFrame title="小元 — 经营工作台">
+    <WindowFrame title="小元 — 经营工作台" innerRef={ref}>
       <div className="flex h-[440px] text-left sm:h-[500px] lg:h-[564px]">
         {/* 会话侧栏 */}
         <aside
           className="hidden w-[196px] shrink-0 flex-col border-r p-2.5 md:flex"
-          style={{ background: C.bar, borderColor: C.border }}
+          style={{ background: C.barGrad, borderColor: C.border }}
         >
           <div className="mb-2.5 flex gap-1 rounded-lg p-0.5" style={{ background: C.toggleBg }}>
             <div
@@ -262,7 +288,7 @@ export function OperationsMock() {
         </aside>
 
         {/* 对话主区 */}
-        <div className="flex min-w-0 flex-1 flex-col" style={{ background: C.canvas }}>
+        <div className="flex min-w-0 flex-1 flex-col" style={{ background: C.canvasGrad }}>
           <div
             className="flex items-center gap-2.5 border-b px-4 py-2.5 text-[12px]"
             style={{ borderColor: C.borderSoft }}
@@ -278,24 +304,35 @@ export function OperationsMock() {
 
           <div className="flex-1 space-y-2.5 overflow-hidden p-4">
             <div
-              className="ml-auto w-fit max-w-[80%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-[12.5px] leading-relaxed"
-              style={{ background: C.userBubble, color: C.text }}
+              className={`ml-auto w-fit max-w-[80%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-[12.5px] leading-relaxed ${show ? 'anim-in' : 'opacity-0'}`}
+              style={{ background: C.userBubble, color: C.text, animationDelay: '60ms' }}
             >
               调研蓝牙耳机类目近 30 天竞品价格和卖点,给出定价建议
             </div>
 
             <div className="flex items-start gap-2.5">
-              <img src={logo} alt="" className="mt-0.5 h-6 w-6 shrink-0 rounded-md" />
+              <img
+                src={logo}
+                alt=""
+                className={`mt-0.5 h-6 w-6 shrink-0 rounded-md ${show ? 'anim-in' : 'opacity-0'}`}
+                style={{ animationDelay: '180ms' }}
+              />
               <div className="min-w-0 space-y-2.5">
-                <ToolCard as={SearchCode} label="搜索网络" arg="蓝牙耳机 热销榜 价格" />
-                <ToolCard as={FileText} label="读取" arg="competitors.csv" />
-                <ToolCard as={BarChart3} label="分析价格分布" arg="12 款竞品" running />
-                <p className="text-[12.5px] leading-relaxed" style={{ color: C.text }}>
+                <ToolCard as={SearchCode} label="搜索网络" arg="蓝牙耳机 热销榜 价格" show={show} delay={220} />
+                <ToolCard as={FileText} label="读取" arg="competitors.csv" show={show} delay={320} />
+                <ToolCard as={BarChart3} label="分析价格分布" arg="12 款竞品" running show={show} delay={420} />
+                <p
+                  className={`text-[12.5px] leading-relaxed ${show ? 'anim-in' : 'opacity-0'}`}
+                  style={{ color: C.text, animationDelay: '540ms' }}
+                >
                   对比 <b>12</b> 款竞品,均价 <b>¥149</b>,卖点集中在「降噪 / 续航 / 低延迟」。建议切入{' '}
                   <span style={{ color: C.accent, fontWeight: 600 }}>¥99–129</span> 价位,并补强续航卖点。
                 </p>
 
-                <div className="overflow-hidden rounded-xl border" style={{ background: C.card, borderColor: C.cardBorder }}>
+                <div
+                  className={`overflow-hidden rounded-xl border ${show ? 'anim-in' : 'opacity-0'}`}
+                  style={{ background: C.card, borderColor: C.cardBorder, animationDelay: '680ms' }}
+                >
                   <div
                     className="flex items-center gap-2 border-b px-3 py-2 text-[11px]"
                     style={{ borderColor: C.borderSoft }}
@@ -377,7 +414,7 @@ export function OperationsMock() {
         {/* 右侧:采购计划 Todo */}
         <aside
           className="hidden w-[244px] shrink-0 flex-col border-l p-3 lg:flex"
-          style={{ background: C.bar, borderColor: C.border }}
+          style={{ background: C.barGrad, borderColor: C.border }}
         >
           <div className="flex items-center gap-2 px-1">
             <ListTodo size={15} strokeWidth={2} style={{ color: C.accent }} />
@@ -401,15 +438,18 @@ export function OperationsMock() {
           </div>
 
           <div className="mt-2 space-y-0.5">
-            <TodoItem label="选品调研" state="done" />
-            <TodoItem label="竞品比价" state="done" />
-            <TodoItem label="整理采购清单" state="active" />
-            <TodoItem label="生成商品文案" state="todo" />
-            <TodoItem label="提交供应商询盘" state="todo" />
+            <TodoItem label="选品调研" state="done" show={show} delay={260} />
+            <TodoItem label="竞品比价" state="done" show={show} delay={360} />
+            <TodoItem label="整理采购清单" state="active" show={show} delay={460} />
+            <TodoItem label="生成商品文案" state="todo" show={show} delay={560} />
+            <TodoItem label="提交供应商询盘" state="todo" show={show} delay={660} />
           </div>
 
           <div className="my-3 h-px" style={{ background: C.border }} />
-          <div className="rounded-xl border p-3" style={{ background: C.card, borderColor: C.cardBorder }}>
+          <div
+            className={`rounded-xl border p-3 ${show ? 'anim-in' : 'opacity-0'}`}
+            style={{ background: C.card, borderColor: C.cardBorder, animationDelay: '760ms' }}
+          >
             <div className="flex items-center gap-1.5">
               <FileQuestion size={13} strokeWidth={2} style={{ color: C.skill }} />
               <span className="text-[11.5px] font-semibold" style={{ color: C.text }}>
@@ -464,13 +504,14 @@ const FILES = [
 ]
 
 export function WriteMock() {
+  const [ref, show] = useInView()
   return (
-    <WindowFrame title="小元 — 文案工作台">
+    <WindowFrame title="小元 — 文案工作台" innerRef={ref}>
       <div className="flex h-[440px] text-left sm:h-[500px] lg:h-[564px]">
         {/* 文件树 */}
         <aside
           className="hidden w-[182px] shrink-0 flex-col p-2.5 md:flex"
-          style={{ background: C.bar, borderRight: `1px solid ${C.border}` }}
+          style={{ background: C.barGrad, borderRight: `1px solid ${C.border}` }}
         >
           <div className="mb-2 flex items-center justify-between px-1">
             <span className="text-[10.5px] font-semibold uppercase tracking-wider" style={{ color: C.text3 }}>
@@ -517,7 +558,7 @@ export function WriteMock() {
         </aside>
 
         {/* 编辑器(主区) */}
-        <div className="flex min-w-0 flex-1 flex-col" style={{ background: C.canvas }}>
+        <div className="flex min-w-0 flex-1 flex-col" style={{ background: C.canvasGrad }}>
           <div
             className="flex items-center gap-2 border-b px-4 py-2.5 text-[11px]"
             style={{ borderColor: C.borderSoft }}
@@ -543,7 +584,10 @@ export function WriteMock() {
           <div className="flex min-h-0 flex-1">
             {/* 源码 */}
             <div className="relative min-w-0 flex-1 overflow-hidden px-5 py-4" style={{ color: C.text2 }}>
-              <div className="text-[12.5px] leading-7">
+              <div
+                className={`text-[12.5px] leading-7 ${show ? 'anim-in' : 'opacity-0'}`}
+                style={{ animationDelay: '80ms' }}
+              >
                 <p>
                   <span style={{ color: C.accent }}># </span>
                   <span className="font-semibold" style={{ color: C.text }}>
@@ -571,8 +615,8 @@ export function WriteMock() {
 
               {/* 内联 AI 工具条 */}
               <div
-                className="absolute left-5 top-[120px] z-10 w-[196px] rounded-xl border p-1.5"
-                style={{ background: C.cardElevated, borderColor: C.border, boxShadow: '0 18px 44px rgba(0,0,0,0.55)' }}
+                className={`absolute left-5 top-[120px] z-10 w-[196px] rounded-xl border p-1.5 ${show ? 'anim-in' : 'opacity-0'}`}
+                style={{ background: C.cardElevated, borderColor: C.border, boxShadow: '0 18px 44px rgba(0,0,0,0.55)', animationDelay: '760ms' }}
               >
                 <div className="flex items-center gap-1.5 rounded-md px-2 py-1.5" style={{ background: C.chip }}>
                   <Pilcrow size={13} strokeWidth={2} style={{ color: C.text2 }} />
@@ -624,30 +668,43 @@ export function WriteMock() {
                 <Eye size={12} strokeWidth={2} /> 预览
               </div>
               <div className="flex-1 overflow-hidden px-5 py-4">
-                <h4 className="text-[16px] font-bold" style={{ color: C.text }}>
+                <h4
+                  className={`text-[16px] font-bold ${show ? 'anim-in' : 'opacity-0'}`}
+                  style={{ color: C.text, animationDelay: '220ms' }}
+                >
                   主动降噪蓝牙耳机
                 </h4>
-                {/* 商品主图占位 */}
                 <div
-                  className="mt-3 flex h-[78px] items-center justify-center rounded-lg border"
+                  className={`mt-3 flex h-[78px] items-center justify-center rounded-lg border ${show ? 'anim-in' : 'opacity-0'}`}
                   style={{
                     borderColor: C.cardBorder,
-                    background: 'linear-gradient(135deg, rgba(111,176,232,0.16), rgba(168,155,245,0.12))'
+                    background: 'linear-gradient(135deg, rgba(116,179,234,0.18), rgba(168,155,245,0.13))',
+                    animationDelay: '320ms'
                   }}
                 >
                   <ImageIcon size={22} strokeWidth={1.6} style={{ color: C.accent }} />
                 </div>
-                <p className="mt-3 text-[12.5px] font-semibold" style={{ color: C.text }}>
+                <p
+                  className={`mt-3 text-[12.5px] font-semibold ${show ? 'anim-in' : 'opacity-0'}`}
+                  style={{ color: C.text, animationDelay: '430ms' }}
+                >
                   一、核心卖点
                 </p>
-                <p className="mt-1.5 text-[12px] leading-relaxed" style={{ color: C.text2 }}>
+                <p
+                  className={`mt-1.5 text-[12px] leading-relaxed ${show ? 'anim-in' : 'opacity-0'}`}
+                  style={{ color: C.text2, animationDelay: '520ms' }}
+                >
                   整日佩戴也轻盈无感,40 小时续航陪你从通勤到深夜,
                   <b style={{ color: C.text }}>主动降噪</b>让嘈杂瞬间安静。
                 </p>
                 <ul className="mt-2.5 space-y-1.5 text-[12px]" style={{ color: C.text2 }}>
                   {['40h 超长续航,快充 10 分钟用 3 小时', '入耳检测,摘下自动暂停', '蓝牙 5.4 双设备无缝切换'].map(
-                    (li) => (
-                      <li key={li} className="flex gap-2">
+                    (li, i) => (
+                      <li
+                        key={li}
+                        className={`flex gap-2 ${show ? 'anim-in' : 'opacity-0'}`}
+                        style={{ animationDelay: `${620 + i * 90}ms` }}
+                      >
                         <Check size={14} strokeWidth={2.4} className="mt-0.5 shrink-0" style={{ color: C.green }} />
                         <span>{li}</span>
                       </li>
