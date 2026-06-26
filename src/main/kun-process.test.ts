@@ -1150,50 +1150,29 @@ describe('syncGuiManagedKunConfig', () => {
     })
   })
 
-  it('imports workspace-local MCP servers with isolated workspace visibility', async () => {
+  it('does not auto-import repo-local .kun/mcp.json servers into the runtime', async () => {
+    // Security: a cloned/untrusted repo must not be able to register an MCP
+    // server that the runtime would spawn on startup. Workspace-scoped
+    // *visibility* stays supported on user-authored servers (see the test
+    // above); only the unsafe repo-file auto-discovery is intentionally absent.
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
-    const workspaceA = join(tempRoot, 'project-a')
-    const workspaceB = join(tempRoot, 'project-b')
-    mkdirSync(join(workspaceA, '.kun'), { recursive: true })
-    mkdirSync(join(workspaceB, '.kun'), { recursive: true })
-    writeFileSync(join(workspaceA, '.kun', 'mcp.json'), JSON.stringify({
+    const repo = join(tempRoot, 'cloned-repo')
+    mkdirSync(join(repo, '.kun'), { recursive: true })
+    writeFileSync(join(repo, '.kun', 'mcp.json'), JSON.stringify({
       servers: {
-        codegraph: {
-          command: 'node',
-          args: ['codegraph-a.js'],
-          workspaceRoots: [join(tempRoot, 'should-not-leak')],
-          trustScope: 'user'
-        }
-      }
-    }), 'utf8')
-    writeFileSync(join(workspaceB, '.kun', 'mcp.json'), JSON.stringify({
-      servers: {
-        codegraph: {
-          command: 'node',
-          args: ['codegraph-b.js'],
-          trustScope: 'user'
-        }
+        evil: { command: 'node', args: ['evil.js'], trustScope: 'user' }
       }
     }), 'utf8')
     const module = await import('./kun-process')
 
     await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
-      mcpConfigPath: join(tempRoot, 'missing-mcp.json'),
-      workspaceRoots: [workspaceA, workspaceB]
+      mcpConfigPath: join(tempRoot, 'missing-mcp.json')
     })
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
-    const localServers = Object.entries(parsed.capabilities.mcp.servers as Record<string, any>)
-      .filter(([serverId]) => serverId.startsWith('codegraph__'))
-    expect(localServers).toHaveLength(2)
-    expect(localServers.map(([, server]) => server.workspaceRoots)).toEqual(
-      expect.arrayContaining([[workspaceA], [workspaceB]])
-    )
-    expect(localServers.map(([, server]) => server.args)).toEqual(
-      expect.arrayContaining([['codegraph-a.js'], ['codegraph-b.js']])
-    )
-    expect(JSON.stringify(localServers)).not.toContain('should-not-leak')
+    const servers = parsed.capabilities?.mcp?.servers ?? {}
+    expect(JSON.stringify(servers)).not.toContain('evil.js')
   })
 
   it('replaces unparsable historical Kun config with a valid GUI-managed config', async () => {

@@ -1,11 +1,10 @@
 import { app } from 'electron'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import {
   defaultKunTokenEconomySettings,
@@ -345,7 +344,6 @@ async function startKunChildOnce(
   }
   const dataDir = resolveKunDataDir(runtime)
   await syncGuiManagedKunConfig(dataDir, runtime, {
-    workspaceRoots: mcpWorkspaceRootsForRuntime(settings),
     scheduleMcp: {
       settings,
       launch: {
@@ -466,7 +464,6 @@ export async function syncGuiManagedKunConfig(
     | 'codeReviewProviderId'
   >,
   options?: {
-    workspaceRoots?: string[]
     scheduleMcp?: {
       settings: AppSettingsV1
       launch: ClawScheduleMcpLaunchConfig
@@ -479,8 +476,7 @@ export async function syncGuiManagedKunConfig(
   const importedMcpServers = await readGuiManagedMcpServers(
     options?.mcpConfigPath ?? resolveKunMcpJsonPath()
   )
-  const workspaceMcpServers = await readWorkspaceMcpServers(options?.workspaceRoots ?? [])
-  const hasImportedEnabledMcpServer = Object.values({ ...importedMcpServers, ...workspaceMcpServers }).some(
+  const hasImportedEnabledMcpServer = Object.values(importedMcpServers).some(
     (server) => objectValue(server).enabled !== false
   )
 
@@ -559,7 +555,6 @@ export async function syncGuiManagedKunConfig(
         servers: {
           ...objectValue(mcp.servers),
           ...importedMcpServers,
-          ...workspaceMcpServers,
           ...(options?.scheduleMcp
           ? {
               [GUI_SCHEDULE_MCP_SERVER_NAME]: buildGuiScheduleKunMcpServer(
@@ -683,51 +678,6 @@ async function readGuiManagedMcpServers(path: string): Promise<Record<string, Re
     .filter((entry): entry is readonly [string, Record<string, unknown>] => entry !== null)
 
   return Object.fromEntries(normalizedEntries)
-}
-
-async function readWorkspaceMcpServers(workspaceRoots: readonly string[]): Promise<Record<string, unknown>> {
-  const entries: Array<readonly [string, Record<string, unknown>]> = []
-  for (const workspaceRoot of uniqueStrings(workspaceRoots.map((root) => root.trim())).filter(isAbsolute)) {
-    const rawServers = await readGuiManagedMcpServers(join(workspaceRoot, '.kun', 'mcp.json'))
-    for (const [serverId, server] of Object.entries(rawServers)) {
-      entries.push([
-        workspaceMcpServerId(workspaceRoot, serverId),
-        {
-          ...server,
-          workspaceRoots: [workspaceRoot]
-        }
-      ])
-    }
-  }
-  return Object.fromEntries(entries)
-}
-
-function workspaceMcpServerId(workspaceRoot: string, serverId: string): string {
-  const normalizedName = serverId.trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'server'
-  const hash = createHash('sha256').update(workspaceRoot).digest('hex').slice(0, 8)
-  return `${normalizedName}__${hash}`
-}
-
-function mcpWorkspaceRootsForRuntime(settings: AppSettingsV1): string[] {
-  const roots: string[] = []
-  collectWorkspaceRoots(settings, roots)
-  roots.push(settings.write.defaultWorkspaceRoot, settings.write.activeWorkspaceRoot, ...settings.write.workspaces)
-  return uniqueStrings(roots.map((root) => root.trim()).filter((root) => root.length > 0))
-}
-
-function collectWorkspaceRoots(value: unknown, out: string[], depth = 0): void {
-  if (depth > 8 || value === null || value === undefined) return
-  if (Array.isArray(value)) {
-    for (const item of value) collectWorkspaceRoots(item, out, depth + 1)
-    return
-  }
-  if (typeof value !== 'object') return
-  const record = value as Record<string, unknown>
-  if (typeof record.workspaceRoot === 'string') out.push(record.workspaceRoot)
-  for (const [key, child] of Object.entries(record)) {
-    if (key === 'provider' || key === 'agents' || key === 'terminal') continue
-    collectWorkspaceRoots(child, out, depth + 1)
-  }
 }
 
 function mcpServersFromGuiConfig(config: Record<string, unknown>): Record<string, unknown> {
