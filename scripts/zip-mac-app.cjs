@@ -27,9 +27,12 @@ if (!version) {
 
 const distDir = resolve(process.env.KUN_DIST_DIR || process.env.DEEPSEEK_GUI_DIST_DIR || join(root, 'dist'))
 const appOutDir = join(distDir, arch === 'arm64' ? 'mac-arm64' : 'mac')
-const appName = 'Kun.app'
+// .app bundle 名跟随 electron-builder 的 productName(rebrand 后为「小元」);
+// zip 文件名保持 ASCII(Xiaoyuan-)与 dmg / artifactName 一致,避免 electron-updater
+// 下载 URL 编码问题,并能被 release.yml 的 dist/Xiaoyuan-*-mac-*.zip 收集到。
+const appName = `${pkg.productName || pkg.name}.app`
 const appPath = join(appOutDir, appName)
-const zipPath = join(distDir, `Kun-${version}-mac-${arch}.zip`)
+const zipPath = join(distDir, `Xiaoyuan-${version}-mac-${arch}.zip`)
 
 if (!existsSync(appPath)) {
   console.error(`[zip-mac-app] App bundle not found: ${appPath}`)
