@@ -56,6 +56,7 @@ import {
 } from './claw-schedule-mcp-config'
 import { defaultKunDataDir } from './runtime/kun-adapter'
 import { isKunHealthResponseBody } from './kun-health'
+import { resolveClaudeBinary } from './agent-sdk-installer'
 import { appendManagedLogLine } from './logger'
 import {
   comparableSkillRootPath,
@@ -379,10 +380,22 @@ async function startKunChildOnce(
   // when the user actually opted into host control.
   const runAsElectron = process.platform === 'darwin' && runtime.computerUse?.enabled === true
   const command = runAsElectron ? resolution.command : resolveNodeScriptCommand(resolution.command)
+  // When the runtime's own (default) provider is the Claude subscription, tell
+  // the runtime so its dispatch routes default-provider turns (thread.providerId
+  // absent or equal to it) to the embedded SDK instead of the HTTP default.
+  const activeProviderKind = (getModelProviderSettings(settings).providers as ModelProviderProfileV1[]).find(
+    (provider) => provider.id?.trim() === getKunRuntimeSettings(settings).providerId.trim()
+  )?.kind
+  // Point the runtime at the on-demand Claude Code binary (the ~222MB binary is
+  // not bundled; it's downloaded into userData). Absent in dev when it's still
+  // resolvable from kun/node_modules — the SDK auto-resolves it there.
+  const claudeBinary = resolveClaudeBinary(app.getPath('userData'), [join(appRoot(), 'kun')])
   const childEnv: NodeJS.ProcessEnv = {
     ...process.env,
     KUN_RUNTIME_TOKEN: runtime.runtimeToken,
-    DEEPSEEK_API_KEY: runtime.apiKey || process.env.DEEPSEEK_API_KEY || ''
+    DEEPSEEK_API_KEY: runtime.apiKey || process.env.DEEPSEEK_API_KEY || '',
+    ...(activeProviderKind === 'agent-sdk' ? { KUN_RUNTIME_PROVIDER_KIND: 'agent-sdk' } : {}),
+    ...(claudeBinary ? { KUN_CLAUDE_BINARY: claudeBinary } : {})
   }
   if (!runAsElectron) childEnv.ELECTRON_RUN_AS_NODE = '1'
   else delete childEnv.ELECTRON_RUN_AS_NODE
@@ -840,14 +853,19 @@ function providersConfigForRuntime(settings: AppSettingsV1): Record<string, Reco
   for (const provider of getModelProviderSettings(settings).providers as ModelProviderProfileV1[]) {
     const id = provider.id?.trim()
     const baseUrl = provider.baseUrl?.trim()
-    if (!id || !baseUrl) continue
-    // The runtime's own provider is already wired via the default CLI args;
-    // skipping it keeps the map smaller and avoids paying twice for one
-    // provider that happens to be the active runtime binding.
-    if (id === runtimeProviderId) continue
+    const isAgentSdk = provider.kind === 'agent-sdk'
+    if (!id) continue
+    // agent-sdk providers carry no usable HTTP endpoint; everyone else needs one.
+    if (!baseUrl && !isAgentSdk) continue
+    // The runtime's own provider is already wired via the default CLI args, so
+    // we normally skip it here — EXCEPT agent-sdk: its turns must be routable to
+    // the embedded SDK via `serve.providers`, otherwise they fall back to the
+    // HTTP default client and 401 on api.anthropic.com (invalid x-api-key).
+    if (id === runtimeProviderId && !isAgentSdk) continue
     out[id] = {
       apiKey: provider.apiKey?.trim() ?? '',
-      baseUrl,
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(provider.kind ? { kind: provider.kind } : {}),
       ...(provider.endpointFormat ? { endpointFormat: provider.endpointFormat } : {}),
       ...(proxyUrl ? { modelProxyUrl: proxyUrl } : {})
     }

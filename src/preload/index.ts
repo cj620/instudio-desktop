@@ -12,6 +12,11 @@ const api = {
   platform: process.platform,
   homeDir: homeDirFromArgs,
   getSettings: () => ipcRenderer.invoke('settings:get'),
+  claudeSubscriptionStatus: () => ipcRenderer.invoke('claude-subscription:status'),
+  claudeSubscriptionLogin: () => ipcRenderer.invoke('claude-subscription:login'),
+  claudeSubscriptionModels: (token) => ipcRenderer.invoke('claude-subscription:models', token),
+  claudeSubscriptionSdkStatus: () => ipcRenderer.invoke('claude-subscription:sdk-status'),
+  claudeSubscriptionSdkInstall: () => ipcRenderer.invoke('claude-subscription:sdk-install'),
   setSettings: (partial) =>
     ipcRenderer.invoke('settings:set', partial),
   saveSettingsSilent: (partial) =>
