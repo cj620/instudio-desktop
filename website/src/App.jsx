@@ -1,4 +1,5 @@
 import { LangProvider } from './LangContext.jsx'
+import { DownloadProvider } from './DownloadContext.jsx'
 import Nav from './components/Nav.jsx'
 import Hero from './components/Hero.jsx'
 import Modes from './components/Modes.jsx'
@@ -11,18 +12,20 @@ import Footer from './components/Footer.jsx'
 export default function App() {
   return (
     <LangProvider>
-      <div className="relative min-h-screen overflow-x-hidden">
-        <Nav />
-        <main>
-          <Hero />
-          <Modes />
-          <Paradigm />
-          <Models />
-          <Why />
-          <Download />
-        </main>
-        <Footer />
-      </div>
+      <DownloadProvider>
+        <div className="relative min-h-screen overflow-x-hidden">
+          <Nav />
+          <main>
+            <Hero />
+            <Modes />
+            <Paradigm />
+            <Models />
+            <Why />
+            <Download />
+          </main>
+          <Footer />
+        </div>
+      </DownloadProvider>
     </LangProvider>
   )
 }

@@ -47,12 +47,7 @@ export default function Nav() {
           >
             GitHub
           </a>
-          <a
-            href={LINKS.releases}
-            target="_blank"
-            rel="noreferrer"
-            className="btn-primary !px-4 !py-2"
-          >
+          <a href="#download" className="btn-primary !px-4 !py-2">
             {t.nav.download}
           </a>
         </div>

@@ -31,7 +31,7 @@ export default function Footer() {
             <h4 className="text-sm font-semibold text-white">{t.footer.colResources}</h4>
             <ul className="mt-4 space-y-3 text-sm text-slate-400">
               <li><a href={LINKS.github} target="_blank" rel="noreferrer" className="hover:text-white">GitHub</a></li>
-              <li><a href={LINKS.releases} target="_blank" rel="noreferrer" className="hover:text-white">{t.footer.releases}</a></li>
+              <li><a href="#download" className="hover:text-white">{t.footer.releases}</a></li>
               <li><a href={LINKS.docs} target="_blank" rel="noreferrer" className="hover:text-white">{t.footer.docs}</a></li>
             </ul>
           </div>

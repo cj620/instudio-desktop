@@ -81,13 +81,32 @@ export const content = {
     download: {
       heading: '现在就开始',
       sub: '免费下载,数据默认留在本机。macOS 当前为未签名构建,首次打开需右键 →「打开」。',
+      latest: '最新版本',
+      detecting: '正在识别你的系统…',
+      recommendedTitle: '为你的设备推荐',
+      recommendBtn: '下载推荐版本',
+      macIntelHint: '使用 Intel 芯片?下载 x64 版',
+      otherTitle: '其他平台',
+      downloadBtn: '下载',
+      noBuild: '当前最新版本暂未提供你所在平台的安装包。',
+      unsupported: '小元 是桌面应用,请在 Windows / macOS / Linux 电脑上打开本页下载。',
+      loadError: '暂时无法获取最新版本信息。',
+      viewAll: '查看全部安装包 →',
+      note: '所有安装包发布在 GitHub Releases,客户端跟随最新版本自动更新。',
+      osNames: { windows: 'Windows', mac: 'macOS', linux: 'Linux' },
       platforms: [
-        { os: 'macOS', hint: 'Apple Silicon / Intel · .dmg' },
-        { os: 'Windows', hint: 'x64 · .exe 安装包' },
-        { os: 'Linux', hint: 'x64 · .AppImage' }
+        { key: 'macArm64', os: 'macOS', hint: 'Apple Silicon · .dmg' },
+        { key: 'macX64', os: 'macOS', hint: 'Intel · .dmg' },
+        { key: 'win', os: 'Windows', hint: 'x64 · .exe' },
+        { key: 'linux', os: 'Linux', hint: 'x64 · .AppImage' }
       ],
-      cta: '前往下载页',
-      note: '所有安装包发布在 GitHub Releases,客户端跟随最新版本自动更新。'
+      confirm: {
+        title: '确认下载',
+        body: '即将开始下载:',
+        tip: '下载完成后,双击安装包即可安装。',
+        confirm: '确认下载',
+        cancel: '取消'
+      }
     },
     footer: {
       tagline: '需求先行的下一代 coding 工作台',
@@ -172,13 +191,32 @@ export const content = {
     download: {
       heading: 'Get started now',
       sub: 'Free download, data stays on your machine. macOS builds are currently unsigned — on first launch, right-click → “Open”.',
+      latest: 'Latest',
+      detecting: 'Detecting your system…',
+      recommendedTitle: 'Recommended for your device',
+      recommendBtn: 'Download recommended',
+      macIntelHint: 'On an Intel Mac? Get the x64 build',
+      otherTitle: 'Other platforms',
+      downloadBtn: 'Download',
+      noBuild: 'The latest release has no installer for your platform yet.',
+      unsupported: 'Xiaoyuan is a desktop app — open this page on a Windows / macOS / Linux computer to download.',
+      loadError: 'Could not fetch the latest release info right now.',
+      viewAll: 'View all installers →',
+      note: 'All installers ship on GitHub Releases; the app auto-updates to the latest version.',
+      osNames: { windows: 'Windows', mac: 'macOS', linux: 'Linux' },
       platforms: [
-        { os: 'macOS', hint: 'Apple Silicon / Intel · .dmg' },
-        { os: 'Windows', hint: 'x64 · .exe installer' },
-        { os: 'Linux', hint: 'x64 · .AppImage' }
+        { key: 'macArm64', os: 'macOS', hint: 'Apple Silicon · .dmg' },
+        { key: 'macX64', os: 'macOS', hint: 'Intel · .dmg' },
+        { key: 'win', os: 'Windows', hint: 'x64 · .exe' },
+        { key: 'linux', os: 'Linux', hint: 'x64 · .AppImage' }
       ],
-      cta: 'Go to downloads',
-      note: 'All installers ship on GitHub Releases; the app auto-updates to the latest version.'
+      confirm: {
+        title: 'Confirm download',
+        body: 'About to download:',
+        tip: 'When the download finishes, double-click the installer to install.',
+        confirm: 'Confirm',
+        cancel: 'Cancel'
+      }
     },
     footer: {
       tagline: 'Requirement-first coding for the next paradigm',

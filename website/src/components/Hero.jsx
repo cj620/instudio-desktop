@@ -1,9 +1,11 @@
 import { useLang } from '../LangContext.jsx'
+import { useDownload } from '../DownloadContext.jsx'
 import { LINKS } from '../content.js'
 import mascot from '../assets/mascot.png'
 
 export default function Hero() {
   const { t } = useLang()
+  const { recommended, requestDownload } = useDownload()
 
   return (
     <section id="top" className="relative pt-32 pb-20 sm:pt-40 sm:pb-28">
@@ -29,9 +31,16 @@ export default function Hero() {
             {t.hero.subtitle}
           </p>
           <div className="mt-9 flex flex-wrap items-center gap-4">
-            <a href={LINKS.releases} target="_blank" rel="noreferrer" className="btn-primary">
+            <button
+              onClick={() =>
+                recommended
+                  ? requestDownload(recommended)
+                  : document.getElementById('download')?.scrollIntoView({ behavior: 'smooth' })
+              }
+              className="btn-primary"
+            >
               {t.hero.ctaDownload} ↓
-            </a>
+            </button>
             <a href={LINKS.github} target="_blank" rel="noreferrer" className="btn-ghost">
               {t.hero.ctaGithub}
             </a>
