@@ -1,7 +1,7 @@
 {
   "name": "xiaoyuan-desktop",
   "productName": "小元",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "小元 — Electron 桌面工作台(基于本地 kun runtime,HTTP/SSE)",
   "main": "./out/main/index.js",
   "type": "module",
