@@ -1,13 +1,13 @@
-name: Deploy Website (GitHub Pages)
+name: Deploy Website (Netlify)
 
-# 构建 website/(Vite + React)并发布到 GitHub Pages。
+# 构建 website/(Vite + React)并部署到 Netlify。
 # 仅当 website/ 或本工作流变动时触发,避免每次 app 提交都重新部署官网。
 on:
   push:
     branches: [master]
     paths:
       - 'website/**'
-      - '.github/workflows/pages.yml'
+      - '.github/workflows/netlify.yml'
   # 新版本发布后重建,让站点的 release.json 跟到最新下载链接。
   release:
     types: [published]
@@ -15,17 +15,15 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # 同一时间只跑一个部署;新推送取消进行中的旧部署。
 concurrency:
-  group: pages
+  group: netlify-deploy
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build site
+  deploy:
+    name: Build & deploy to Netlify
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -48,23 +46,12 @@ jobs:
         env:
           # prebuild 的 fetch-release.mjs 用它抓最新 Release(高限额、稳定)
           GITHUB_TOKEN: ${{ github.token }}
+          # Netlify 在根路径托管,base 必须是 '/'(GitHub 运行器不会自动注入 NETLIFY)
+          DEPLOY_BASE: '/'
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: website/dist
-
-  deploy:
-    name: Deploy to Pages
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Deploy to Netlify
+        run: npx --yes netlify-cli@17 deploy --dir=dist --prod --message "CI deploy ${{ github.sha }}"
+        working-directory: website
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
