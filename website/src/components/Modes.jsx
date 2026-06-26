@@ -1,9 +1,8 @@
 import { useLang } from '../LangContext.jsx'
 import Reveal from './Reveal.jsx'
-import codeGif from '../assets/code.gif'
-import writeGif from '../assets/write.gif'
+import { OperationsMock, WriteMock } from './AppMockups.jsx'
 
-function ModeRow({ data, gif, reverse }) {
+function ModeRow({ data, visual, reverse }) {
   return (
     <div className="grid items-center gap-8 lg:grid-cols-2">
       <div className={reverse ? 'lg:order-2' : ''}>
@@ -19,11 +18,7 @@ function ModeRow({ data, gif, reverse }) {
           ))}
         </ul>
       </div>
-      <div className={reverse ? 'lg:order-1' : ''}>
-        <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 shadow-2xl shadow-black/40">
-          <img src={gif} alt={data.tag} loading="lazy" className="w-full" />
-        </div>
-      </div>
+      <div className={reverse ? 'lg:order-1' : ''}>{visual}</div>
     </div>
   )
 }
@@ -39,10 +34,10 @@ export default function Modes() {
         </Reveal>
         <div className="mt-14 space-y-16">
           <Reveal>
-            <ModeRow data={t.modes.code} gif={codeGif} />
+            <ModeRow data={t.modes.code} visual={<OperationsMock />} />
           </Reveal>
           <Reveal>
-            <ModeRow data={t.modes.write} gif={writeGif} reverse />
+            <ModeRow data={t.modes.write} visual={<WriteMock />} reverse />
           </Reveal>
         </div>
       </div>
