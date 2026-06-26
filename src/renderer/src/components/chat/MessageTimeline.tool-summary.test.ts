@@ -359,7 +359,11 @@ describe('MessageTimeline Kun runtime metadata smoke', () => {
     expect(html).toContain('ds-process-file-reference')
   })
 
-  it('shows failed tool details by default while keeping the row collapsible', () => {
+  it('keeps failed tool details collapsed by default while keeping the row collapsible', () => {
+    // Upstream behavior change (synced from KunAgent/Kun, PR #591): failed tool
+    // rows now show only a coloured header collapsed by default and reveal the
+    // detail on expand — see message-timeline-process.tsx
+    // `defaultOpen = isError && block.kind !== 'tool'`.
     const block: ChatBlock = toolBlock({
       summary: 'Recognize image recognize_image',
       status: 'error',
@@ -377,12 +381,11 @@ describe('MessageTimeline Kun runtime metadata smoke', () => {
     )
 
     expect(html).toContain('Recognize image recognize_image')
-    expect(html).toContain('model request failed with status 401')
+    expect(html).not.toContain('model request failed with status 401')
     expect(html).toContain('role="button"')
+    expect(html).toContain('aria-expanded="false"')
     expect(html).toContain('text-orange-700')
-    expect(html).toContain('border-orange-200/80')
     expect(html).not.toContain('text-red-600')
-    expect(html).not.toContain('border-red-200/80')
   })
 
   it('expands active reasoning so the current process is visible', () => {
@@ -620,7 +623,11 @@ describe('MessageTimeline Kun runtime metadata smoke', () => {
     expect(html).not.toContain('aria-expanded=')
   })
 
-  it('keeps completed runtime errors visible instead of folding them into the work summary', () => {
+  it('auto-collapses a completed turn into the work summary even when a tool failed mid-turn', () => {
+    // Upstream behavior change (synced from KunAgent/Kun, PR #591): once a turn
+    // completes the work-process panel auto-collapses and stays user-toggleable
+    // even if a tool failed mid-turn (the error detail is revealed on expand) —
+    // see MessageTimeline.tsx `forceExpandForError = isProcessing && hasProcessError`.
     const blocks: ChatBlock[] = [
       {
         kind: 'user',
@@ -661,9 +668,11 @@ describe('MessageTimeline Kun runtime metadata smoke', () => {
       })
     )
 
-    expect(html).toContain('request failed with status 400')
-    expect(html).toContain('Code: http_400')
-    expect(html).toContain('full provider body only visible in the expanded error detail')
+    // Collapsed work summary present and toggleable; the error detail stays tucked
+    // away until the user expands it.
+    expect(html).toContain('Work process')
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).not.toContain('full provider body only visible in the expanded error detail')
   })
 
   it('adds extra bottom padding only for chat timelines with an active goal banner', () => {
