@@ -8,6 +8,9 @@ on:
     paths:
       - 'website/**'
       - '.github/workflows/pages.yml'
+  # 新版本发布后重建,让站点的 release.json 跟到最新下载链接。
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -42,6 +45,9 @@ jobs:
       - name: Build
         run: npm run build
         working-directory: website
+        env:
+          # prebuild 的 fetch-release.mjs 用它抓最新 Release(高限额、稳定)
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

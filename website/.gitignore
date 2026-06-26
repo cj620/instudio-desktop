@@ -2,3 +2,6 @@ node_modules
 dist
 *.local
 .DS_Store
+
+# 构建期由 scripts/fetch-release.mjs 生成
+public/release.json

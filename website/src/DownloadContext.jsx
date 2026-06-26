@@ -2,8 +2,10 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import DownloadModal from './components/DownloadModal.jsx'
 
 const REPO = 'cj620/instudio-desktop'
-const API = `https://api.github.com/repos/${REPO}/releases/latest`
 const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`
+// 同源静态文件,构建期由 scripts/fetch-release.mjs 写入。
+// 不直连 api.github.com:部分网络会把它拦成 403,且匿名有限流。
+const RELEASE_JSON = `${import.meta.env.BASE_URL}release.json`
 
 const DownloadContext = createContext(null)
 
@@ -24,19 +26,6 @@ export function formatSize(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(0)} MB`
 }
 
-// 从 release.assets 里挑出每个平台真正用于安装的产物(忽略 .blockmap / .zip 更新包)。
-function pickAssets(release) {
-  const out = {}
-  for (const a of release.assets || []) {
-    const item = { name: a.name, url: a.browser_download_url, size: a.size }
-    if (/-mac-arm64\.dmg$/i.test(a.name)) out.macArm64 = item
-    else if (/-mac-x64\.dmg$/i.test(a.name)) out.macX64 = item
-    else if (/-win-x64\.exe$/i.test(a.name)) out.win = item
-    else if (/-linux-.*\.AppImage$/i.test(a.name)) out.linux = item
-  }
-  return out
-}
-
 export function DownloadProvider({ children }) {
   const [state, setState] = useState({ loading: true, error: false, version: '', assets: {} })
   const [archHint, setArchHint] = useState(null)
@@ -45,15 +34,16 @@ export function DownloadProvider({ children }) {
   useEffect(() => {
     let alive = true
 
-    fetch(API, { headers: { Accept: 'application/vnd.github+json' } })
+    fetch(RELEASE_JSON, { cache: 'no-cache' })
       .then((r) => {
-        if (!r.ok) throw new Error(`GitHub API ${r.status}`)
+        if (!r.ok) throw new Error(`release.json ${r.status}`)
         return r.json()
       })
-      .then((rel) => {
-        if (alive) {
-          setState({ loading: false, error: false, version: rel.tag_name || '', assets: pickAssets(rel) })
-        }
+      .then((data) => {
+        if (!alive) return
+        const assets = data?.assets || {}
+        const hasAny = Object.keys(assets).length > 0
+        setState({ loading: false, error: !hasAny, version: data?.version || '', assets })
       })
       .catch(() => {
         if (alive) setState({ loading: false, error: true, version: '', assets: {} })
@@ -82,7 +72,7 @@ export function DownloadProvider({ children }) {
     return null
   }, [state.assets, os, archHint])
 
-  // asset 为空时回退到 Releases 页(仅在拿不到直链的极端情况)。
+  // asset 缺失时回退到 Releases 页(仅在拿不到直链的极端情况)。
   const requestDownload = (asset) => {
     if (!asset) {
       window.open(RELEASES_PAGE, '_blank', 'noopener,noreferrer')
