@@ -124,7 +124,7 @@ const GOAL_NON_PROGRESS_TOOL_NAMES = new Set<string>([
  */
 const GOAL_RESUME_PROMPT = [
   'Continue working toward the active goal.',
-  'The previous attempt was interrupted before the goal was complete (it failed or the runtime restarted).',
+  'The previous attempt stopped before the goal was complete (it was interrupted, truncated, or the runtime restarted, or it simply stopped early).',
   'Review the current state, pick up where the work left off, and keep going until the goal is genuinely achieved or blocked.'
 ].join(' ')
 
@@ -711,6 +711,13 @@ export class AgentLoop {
   private readonly turnFailures = new Map<string, TurnFailure>()
   /** Turns that executed at least one real (non-goal-status) tool call. */
   private readonly turnMadeProgress = new Set<string>()
+  /**
+   * Turns whose stop was a deliberate cap rather than an unfinished-goal
+   * interruption (cost-budget exhaustion, or a repetition stall that made no
+   * real progress). These must not drive goal auto-resume even though the goal
+   * is still `active`.
+   */
+  private readonly goalResumeSuppressedByTurn = new Set<string>()
   private readonly goalResume: GoalResumeCoordinator
 
   constructor(opts: AgentLoopOptions) {
@@ -861,6 +868,7 @@ export class AgentLoop {
       this.lastNoToolTextByTurn.delete(turnId)
       this.goalNoToolRecoveryStepsByTurn.delete(turnId)
       this.turnMadeProgress.delete(turnId)
+      this.goalResumeSuppressedByTurn.delete(turnId)
       this.emptyPostToolRecoveryStepsByTurn.delete(turnId)
       this.turnFailures.delete(turnId)
       await this.runTurnEndHooks(threadId, turnId, finalStatus ?? 'failed', finalError)
@@ -1092,12 +1100,22 @@ export class AgentLoop {
   /**
    * Decide whether to auto-resume the goal after a turn settles (path B).
    *
-   * Only failed, non-plan turns on a still-`active` goal are resumed: a model
-   * step-budget stop or a model/network/tool error left the goal "in
-   * progress" with nothing running (KunAgent/Kun#370). Deliberate stops
-   * (`completed`: the goal-repetition guard or a cost-budget block) and user
-   * interrupts / shutdown (`aborted`) are never relaunched. When the
-   * consecutive no-progress budget is exhausted the goal is moved to
+   * A goal still `active` once the turn ends means the model never marked it
+   * complete or blocked, so the objective is unfinished and nothing is running
+   * (KunAgent/Kun#370). Mirroring codex's idle-relaunch-while-active policy, we
+   * drive a fresh continuation turn — routed through the backoff coordinator —
+   * not only after a `failed` turn (error / step-budget) but also after a
+   * `completed` turn that left the goal active (e.g. the model stopped early or
+   * its output was truncated). Without this, such a clean stop stranded the
+   * goal with the banner still showing "in progress" until the user nudged it.
+   *
+   * Deliberate stops are never relaunched: a plan turn, a user interrupt or
+   * shutdown (`aborted`), and the caps that set `goalResumeSuppressedByTurn`
+   * (cost-budget exhaustion, or a repetition stall that made no real progress
+   * — relaunching those would just re-hit the budget or reproduce the filler).
+   * A repetition stall that *did* make progress first (e.g. edited files, then
+   * trailed off) is not suppressed: it resumes like any other unfinished turn.
+   * When the consecutive no-progress budget is exhausted the goal is moved to
    * `blocked` so the banner reflects reality.
    */
   private async evaluateGoalResume(
@@ -1113,11 +1131,12 @@ export class AgentLoop {
     }
     const turn = thread.turns.find((t) => t.id === turnId)
     const wasPlanTurn = turn?.mode === 'plan' || Boolean(turn?.guiPlan)
-    if (finalStatus !== 'failed' || wasPlanTurn) {
+    const deliberateStop = this.goalResumeSuppressedByTurn.has(turnId)
+    if (finalStatus === 'aborted' || wasPlanTurn || deliberateStop) {
       this.goalResume.clear(threadId)
       return
     }
-    const outcome = this.goalResume.noteGoalTurnFailed({
+    const outcome = this.goalResume.noteGoalTurnSettled({
       threadId,
       goalKey: goalResumeKey(threadId, goal),
       madeProgress: this.turnMadeProgress.has(turnId)
@@ -1270,7 +1289,13 @@ export class AgentLoop {
     const planContextStale = isStalePlanContext(candidatePlanContext, thread?.workspace ?? '')
     const activePlanContext = planContextStale ? undefined : candidatePlanContext
     const budgetGate = await this.checkBudgetGate(thread, threadId, turnId)
-    if (budgetGate === 'blocked') return 'stop'
+    if (budgetGate === 'blocked') {
+      // A cost-budget stop is a deliberate cap, not an interrupted goal turn:
+      // suppress goal auto-resume so it isn't relaunched straight back into
+      // the same exhausted budget.
+      this.goalResumeSuppressedByTurn.add(turnId)
+      return 'stop'
+    }
     const loadedItems = await this.opts.sessionStore.loadItems(threadId)
     // Heal (and possibly rewrite) on-disk history once per turn: within a
     // turn the loop only appends well-formed items, and healing's deep
@@ -1911,6 +1936,15 @@ export class AgentLoop {
           })
           this.lastNoToolTextByTurn.delete(turnId)
           this.goalNoToolRecoveryStepsByTurn.delete(turnId)
+          // A repetition stall on a turn that never made real progress would
+          // just be reproduced by a fresh resume turn, so suppress auto-resume.
+          // But a turn that edited files (etc.) and only then trailed off into
+          // "I'm done" filler IS advancing the goal — the common "stops right
+          // after editing files" case — so let the normal resume path carry it
+          // forward instead of stranding it.
+          if (!this.turnMadeProgress.has(turnId)) {
+            this.goalResumeSuppressedByTurn.add(turnId)
+          }
           return 'stop'
         }
         this.goalNoToolRecoveryStepsByTurn.delete(turnId)
