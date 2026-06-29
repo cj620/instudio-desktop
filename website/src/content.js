@@ -1,81 +1,72 @@
 // 站点全部文案集中在此,zh / en 结构保持一致,新增分区时两边同步增删。
-const GITHUB = 'https://github.com/cj620/instudio-desktop'
-
-export const LINKS = {
-  github: GITHUB,
-  releases: `${GITHUB}/releases/latest`,
-  allReleases: `${GITHUB}/releases`,
-  docs: `${GITHUB}#readme`
-}
 
 export const content = {
   zh: {
-    nav: { modes: '模式', paradigm: '范式', models: '模型', download: '下载' },
+    nav: { modes: '工作台', paradigm: '流程', models: '模型', download: '下载' },
     hero: {
-      badge: '本地智能体桌面工作台',
-      titleTop: '探索需求先行的',
-      titleBottom: '下一代 coding 范式',
+      badge: '本地智能体电商工作台',
+      titleTop: '电商运营提效的',
+      titleBottom: '本地 AI 工作台',
       subtitle:
-        '用 DeepSeek、小米 MiMo、MiniMax 的高性价比组合,把需求澄清、设计稿、计划和 Agent 编码串成完整闭环。',
+        '选品调研、采购询盘、商品上架、营销文案、平台监控——把电商日常交给本地 AI 智能体,一个应用里跑完,效率成倍提升。',
       ctaDownload: '免费下载',
-      ctaGithub: '在 GitHub 查看',
       note: 'macOS · Windows · Linux ｜ 数据默认留在本机'
     },
     modes: {
-      heading: '一个应用,两种模式',
-      sub: '把本地目录交给它处理代码、需求、计划和变更审查;也可以在独立的 Write 工作区里写作、润色和导出文档。',
+      heading: '一个应用,两种工作台',
+      sub: '把店铺数据交给「经营工作台」处理商品、采购与平台监控;也可以在「文案工作台」里批量产出商品详情、种草笔记和营销文案。',
       code: {
-        tag: 'Code 模式',
-        title: '把 AI Agent 真正放进项目',
-        desc: '绑定本地工作区,读写文件、搜索代码、执行命令,工具调用与结果一目了然,变更走内联 diff 和审查面板。',
+        tag: '经营工作台',
+        title: '把 AI 智能体放进你的店铺',
+        desc: '绑定本地店铺数据,读取表格、整理商品、批量处理采购询盘与平台上新监控,每一步操作和结果都清晰可见,改动可预览、可回退。',
         points: [
-          '绑定本地目录,代码 / 需求 / 计划同处一处',
-          '工具审批 · 权限模式 · 内联 diff · 变更审查',
-          '需求变更可提示重规划,计划不与需求脱节'
+          '绑定本地目录,商品 / 采购 / 监控数据同处一处',
+          '操作审批 · 权限模式 · 改动预览 · 结果可回退',
+          '运营策略调整可提示重新规划,执行不脱节'
         ]
       },
       write: {
-        tag: 'Write 模式',
-        title: '同一个应用里完成写作',
-        desc: '独立的 Markdown 写作工作区:文件树、Live / Source / Split / Preview 多视图,选区内联 Agent 操作,一键导出多种格式。',
+        tag: '文案工作台',
+        title: '在同一个应用里写完所有文案',
+        desc: '独立的写作工作区:商品详情、种草笔记、活动文案多视图编辑,选中文字即可让 AI 润色改写,一键导出多种格式。',
         points: [
-          'Markdown 文件树与多视图编辑',
-          '选区触发的内联 Agent 润色 / 改写',
+          '商品文案文件树与多视图编辑',
+          '选区触发的 AI 润色 / 改写 / 换风格',
           '导出多种文档格式'
         ]
       }
     },
     paradigm: {
-      heading: '需求先行的 coding 范式',
-      sub: '不是把聊天框贴到 IDE 上,而是把「需求 → 设计 → 计划 → 编码 → 验证」串成一条连续的 GUI 工作流。',
+      heading: '数据驱动的电商经营流程',
+      sub: '不是把聊天框塞进表格,而是把「选品 → 询盘 → 上架 → 监控 → 复盘」串成一条连续、可控的工作流。',
       stages: [
-        { stage: '澄清需求', desc: '在 GUI 新建需求草稿,让需求 AI 补问题、做实现前调研、整理边界' },
-        { stage: '沉淀文档', desc: '保存为结构化需求块,带验收标准与需求历史' },
-        { stage: '生成设计', desc: '从需求片段生成 UI 设计稿、信息图或交互式 HTML 原型' },
-        { stage: '形成计划', desc: '用 /plan 生成 GUI 管理的实施计划,并与需求关联' },
-        { stage: 'Agent 编码', desc: '计划进入 Todo、文件编辑、命令执行与变更审查' },
-        { stage: '回到验收', desc: '结合需求块、验收标准、计划状态与 /review,落回最初的需求' }
+        { stage: '选品调研', desc: '让 AI 调研类目趋势、竞品价格与卖点,整理成可对比的选品清单' },
+        { stage: '采购询盘', desc: '生成询盘话术、比对供应商报价与起订量,整理可下单的采购清单' },
+        { stage: '商品上架', desc: '根据卖点生成标题、卖点与详情结构,批量整理上架信息' },
+        { stage: '营销文案', desc: '从商品片段生成详情页、种草笔记或活动海报文案' },
+        { stage: '监控上新', desc: '持续监控主流电商平台的活动节奏与竞品上新,及时提醒跟进' },
+        { stage: '数据复盘', desc: '结合销量、转化与计划状态,复盘并回到下一轮选品' }
       ]
     },
     models: {
       heading: '完整能力 + 极致性价比',
-      sub: '需求先行的流程更长、更依赖反复调用模型。小元 默认围绕三家中国高性价比模型供应商组织,让完整流程跑得起、用得久。',
+      sub: '电商日常要反复调用模型写文案、做图、做选品与监控。小元 默认围绕三家中国高性价比模型供应商组织,让全流程跑得起、用得久。',
       items: [
-        { name: 'DeepSeek', role: '默认文本与推理主模型,支撑代码、计划、审查、长上下文会话与自动模型路由。' },
-        { name: '小米 MiMo', role: '高性价比多模态与语音入口:长上下文文本、视觉输入、ASR 语音转写、TTS 与 Token Plan。' },
-        { name: 'MiniMax', role: '补齐完整媒体生成:文本、图片、语音、音乐、视频生成与 Token Plan。' }
+        { name: 'DeepSeek', role: '默认文本与推理主模型,支撑文案撰写、运营计划、数据分析与长上下文会话。' },
+        { name: '小米 MiMo', role: '高性价比多模态与语音入口:长上下文文本、商品图理解、语音转写与 TTS。' },
+        { name: 'MiniMax', role: '补齐完整媒体生成:商品文案、主图、配音、背景音乐与带货短视频生成。' }
       ],
       note: '仍可添加 OpenAI 兼容、自托管或其他自定义 Provider。'
     },
     why: {
       heading: '为什么选择 小元',
       items: [
-        { want: '下一代 coding 工作流', provide: '需求澄清、文档、设计稿、实施计划、Agent 编码与验证连成一条线' },
-        { want: '完整能力又极致性价比', provide: 'DeepSeek、小米 MiMo、MiniMax 覆盖文本、推理、视觉、语音、图像、音乐、视频' },
-        { want: '能动真实项目的 AI', provide: '绑定本地工作区,读写文件、搜索代码、执行命令,审查工具调用与结果' },
-        { want: '让需求变成可执行计划', provide: '新建需求、/plan、Todo、/goal、子对话、线程压缩、分叉与归档' },
-        { want: '可控的变更', provide: '工具审批、权限模式、内联 diff、变更审查面板与 /review' },
-        { want: '远程或后台触发', provide: '飞书 / Lark / 微信接入、本地 webhook / 中继,定时或一次性任务' }
+        { want: '更高效的电商工作流', provide: '选品、采购、上架、文案、监控与复盘连成一条线' },
+        { want: '完整能力又极致性价比', provide: 'DeepSeek、小米 MiMo、MiniMax 覆盖文本、推理、图片、语音、音乐、视频' },
+        { want: '能动真实店铺数据的 AI', provide: '绑定本地工作区,读写表格、整理商品、批量处理采购询盘与平台监控' },
+        { want: '让策略变成可执行计划', provide: '新建运营目标、生成计划、待办拆解、子对话与归档' },
+        { want: '可控的每一步改动', provide: '操作审批、权限模式、改动预览、结果回退与复盘' },
+        { want: '远程或后台触发', provide: '飞书 / 微信接入、本地 webhook / 中继,定时或一次性任务' }
       ]
     },
     download: {
@@ -91,8 +82,7 @@ export const content = {
       noBuild: '当前最新版本暂未提供你所在平台的安装包。',
       unsupported: '小元 是桌面应用,请在 Windows / macOS / Linux 电脑上打开本页下载。',
       loadError: '暂时无法获取最新版本信息。',
-      viewAll: '查看全部安装包 →',
-      note: '所有安装包发布在 GitHub Releases,客户端跟随最新版本自动更新。',
+      note: '客户端跟随最新版本自动更新。',
       osNames: { windows: 'Windows', mac: 'macOS', linux: 'Linux' },
       platforms: [
         { key: 'macArm64', os: 'macOS', hint: 'Apple Silicon · .dmg' },
@@ -109,83 +99,81 @@ export const content = {
       }
     },
     footer: {
-      tagline: '需求先行的下一代 coding 工作台',
-      stack: '基于本地 kun runtime · Electron · React',
+      tagline: '电商运营提效的本地 AI 工作台',
+      stack: '基于本地 xiaoyuan runtime · Electron · React',
       colProduct: '产品',
       colResources: '资源',
-      docs: '文档',
       releases: '下载',
       license: '许可:PolyForm Noncommercial 1.0.0'
     }
   },
 
   en: {
-    nav: { modes: 'Modes', paradigm: 'Paradigm', models: 'Models', download: 'Download' },
+    nav: { modes: 'Workspace', paradigm: 'Workflow', models: 'Models', download: 'Download' },
     hero: {
-      badge: 'Local AI agent desktop workbench',
-      titleTop: 'Requirement-first coding',
-      titleBottom: 'for the next paradigm',
+      badge: 'Local AI agent e-commerce workspace',
+      titleTop: 'The local AI workspace',
+      titleBottom: 'that powers your store',
       subtitle:
-        'Use DeepSeek, Xiaomi MiMo, and MiniMax to connect requirement clarification, design drafts, plans, and agent coding into one complete loop.',
+        'Sourcing research, supplier inquiries, listings, marketing copy, platform monitoring — hand your daily e-commerce work to local AI agents and get it all done in one app, far faster.',
       ctaDownload: 'Free download',
-      ctaGithub: 'View on GitHub',
       note: 'macOS · Windows · Linux ｜ Your data stays on your machine'
     },
     modes: {
-      heading: 'One app, two modes',
-      sub: 'Hand it a local folder for code, requirements, plans, and change review — or use the dedicated Write workspace for long-form writing, editing, and export.',
+      heading: 'One app, two workspaces',
+      sub: 'Hand store data to the Operations workspace for products, procurement, and platform monitoring — or batch-produce listings, seeding notes, and marketing copy in the Copywriting workspace.',
       code: {
-        tag: 'Code mode',
-        title: 'Put the AI agent into real projects',
-        desc: 'Bind a local workspace: read/write files, search code, run commands. Tool calls and results are transparent, and changes flow through inline diffs and a review panel.',
+        tag: 'Operations workspace',
+        title: 'Put AI agents into your store',
+        desc: 'Bind local store data: read spreadsheets, organize products, batch-handle supplier inquiries and new-arrival monitoring. Every action and result is transparent, and changes are previewable and reversible.',
         points: [
-          'Bind a local folder — code / requirements / plans in one place',
-          'Tool approvals · permission modes · inline diff · change review',
-          'Requirement changes can surface replanning, so plans never drift'
+          'Bind a local folder — products / procurement / monitoring data in one place',
+          'Action approvals · permission modes · change preview · reversible results',
+          'Strategy changes can trigger replanning, so execution never drifts'
         ]
       },
       write: {
-        tag: 'Write mode',
-        title: 'Do your writing in the same app',
-        desc: 'A dedicated Markdown workspace: file tree, Live / Source / Split / Preview views, selection-based inline agent actions, and one-click export.',
+        tag: 'Copywriting workspace',
+        title: 'Write all your copy in the same app',
+        desc: 'A dedicated writing workspace: multi-view editing for listings, seeding notes, and campaign copy. Select text to let AI polish or rewrite, then export in one click.',
         points: [
-          'Markdown file tree with multi-view editing',
-          'Selection-triggered inline agent polish / rewrite',
+          'Copy file tree with multi-view editing',
+          'Selection-triggered AI polish / rewrite / restyle',
           'Export to multiple document formats'
         ]
       }
     },
     paradigm: {
-      heading: 'Requirement-first coding',
-      sub: 'Not a chat box bolted onto an IDE — but “requirement → design → plan → code → verify” connected into one continuous GUI workflow.',
+      heading: 'A data-driven e-commerce workflow',
+      sub: 'Not a chat box bolted onto a spreadsheet — but “sourcing → inquiry → listing → monitoring → review” connected into one continuous, controllable workflow.',
       stages: [
-        { stage: 'Clarify', desc: 'Create requirement drafts in the GUI; let Requirement AI find gaps, research options, and shape boundaries' },
-        { stage: 'Document', desc: 'Save as structured requirement blocks with acceptance criteria and history' },
-        { stage: 'Design', desc: 'Generate UI design drafts, infographics, or interactive HTML prototypes from requirements' },
-        { stage: 'Plan', desc: 'Use /plan to produce GUI-owned implementation plans linked back to requirements' },
-        { stage: 'Agent coding', desc: 'Move from plan into todos, file edits, command execution, and change review' },
-        { stage: 'Verify', desc: 'Bring requirement blocks, acceptance criteria, plan state, and /review back to the original requirement' }
+        { stage: 'Sourcing', desc: 'Let AI research category trends, competitor pricing, and selling points into a comparable shortlist' },
+        { stage: 'Inquiry', desc: 'Generate inquiry scripts, compare supplier quotes and MOQs, and build an order-ready procurement list' },
+        { stage: 'Listing', desc: 'Generate titles, selling points, and detail structure; batch-organize listing info' },
+        { stage: 'Marketing copy', desc: 'Generate detail pages, seeding notes, or campaign poster copy from product snippets' },
+        { stage: 'Monitoring', desc: 'Continuously watch campaigns and new arrivals across major e-commerce platforms and flag what to follow up on' },
+        { stage: 'Review', desc: 'Combine sales, conversion, and plan state to review and feed the next sourcing round' }
       ]
     },
     models: {
       heading: 'Complete capability + extreme cost efficiency',
-      sub: 'A requirement-first workflow is longer and leans on repeated model calls. Xiaoyuan is organized around three cost-efficient Chinese providers so the full loop stays affordable to run.',
+      sub: 'Daily e-commerce work calls models constantly for copy, images, sourcing, and monitoring. Xiaoyuan is organized around three cost-efficient Chinese providers so the whole loop stays affordable to run.',
       items: [
-        { name: 'DeepSeek', role: 'Default text and reasoning provider — coding, planning, review, long-context sessions, and auto model routing.' },
-        { name: 'Xiaomi MiMo', role: 'Cost-efficient multimodal and speech entry: long-context text, vision input, ASR, TTS, and Token Plan.' },
-        { name: 'MiniMax', role: 'Full media generation: text, image, speech, music, and video generation, plus Token Plan.' }
+        { name: 'DeepSeek', role: 'Default text and reasoning provider — copywriting, operations planning, data analysis, and long-context sessions.' },
+        { name: 'Xiaomi MiMo', role: 'Cost-efficient multimodal and speech entry: long-context text, product-image understanding, voice transcription, and TTS.' },
+        { name: 'MiniMax', role: 'Full media generation: product copy, hero images, voiceover, background music, and short promo videos.' }
       ],
       note: 'You can still add OpenAI-compatible, self-hosted, or other custom providers.'
     },
     why: {
       heading: 'Why Xiaoyuan',
       items: [
-        { want: 'A next-generation coding workflow', provide: 'Clarification, documents, design drafts, plans, agent coding, and verification in one line' },
-        { want: 'Full capability at low cost', provide: 'DeepSeek, Xiaomi MiMo, and MiniMax for text, reasoning, vision, speech, image, music, and video' },
-        { want: 'AI that works on real projects', provide: 'Bind a local workspace, read/write files, search code, run commands, inspect tool calls' },
-        { want: 'Requirements as executable plans', provide: 'New requirements, /plan, todos, /goal, side chats, compaction, forking, and archiving' },
-        { want: 'Controlled changes', provide: 'Tool approvals, permission modes, inline diffs, a change-review panel, and /review' },
-        { want: 'Remote or background triggers', provide: 'Feishu / Lark / WeChat, local webhook / relay, one-time or recurring tasks' }
+        { want: 'A more efficient e-commerce workflow', provide: 'Sourcing, procurement, listing, copy, monitoring, and review in one line' },
+        { want: 'Full capability at low cost', provide: 'DeepSeek, Xiaomi MiMo, and MiniMax for text, reasoning, image, speech, music, and video' },
+        { want: 'AI that works on real store data', provide: 'Bind a local workspace, read/write spreadsheets, organize products, batch-handle supplier inquiries and platform monitoring' },
+        { want: 'Strategy as executable plans', provide: 'New goals, generated plans, todo breakdown, side chats, and archiving' },
+        { want: 'Every change under control', provide: 'Action approvals, permission modes, change preview, reversible results, and review' },
+        { want: 'Remote or background triggers', provide: 'Feishu / WeChat, local webhook / relay, one-time or recurring tasks' }
       ]
     },
     download: {
@@ -201,8 +189,7 @@ export const content = {
       noBuild: 'The latest release has no installer for your platform yet.',
       unsupported: 'Xiaoyuan is a desktop app — open this page on a Windows / macOS / Linux computer to download.',
       loadError: 'Could not fetch the latest release info right now.',
-      viewAll: 'View all installers →',
-      note: 'All installers ship on GitHub Releases; the app auto-updates to the latest version.',
+      note: 'The app auto-updates to the latest version.',
       osNames: { windows: 'Windows', mac: 'macOS', linux: 'Linux' },
       platforms: [
         { key: 'macArm64', os: 'macOS', hint: 'Apple Silicon · .dmg' },
@@ -219,11 +206,10 @@ export const content = {
       }
     },
     footer: {
-      tagline: 'Requirement-first coding for the next paradigm',
-      stack: 'Powered by local kun runtime · Electron · React',
+      tagline: 'The local AI workspace for e-commerce efficiency',
+      stack: 'Powered by local xiaoyuan runtime · Electron · React',
       colProduct: 'Product',
       colResources: 'Resources',
-      docs: 'Docs',
       releases: 'Download',
       license: 'License: PolyForm Noncommercial 1.0.0'
     }

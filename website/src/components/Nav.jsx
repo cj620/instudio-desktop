@@ -1,5 +1,4 @@
 import { useLang } from '../LangContext.jsx'
-import { LINKS } from '../content.js'
 import logo from '../assets/logo.png'
 
 export default function Nav() {
@@ -39,14 +38,6 @@ export default function Nav() {
           >
             {lang === 'zh' ? 'EN' : '中'}
           </button>
-          <a
-            href={LINKS.github}
-            target="_blank"
-            rel="noreferrer"
-            className="hidden text-sm text-slate-300 transition hover:text-white sm:inline"
-          >
-            GitHub
-          </a>
           <a href="#download" className="btn-primary !px-4 !py-2">
             {t.nav.download}
           </a>

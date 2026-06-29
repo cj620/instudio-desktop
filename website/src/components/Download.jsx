@@ -35,7 +35,7 @@ function RecommendedCard({ d, os, asset, assets, onPick }) {
 export default function Download() {
   const { t } = useLang()
   const d = t.download
-  const { loading, error, version, assets, os, recommended, requestDownload, releasesPage } = useDownload()
+  const { loading, error, version, assets, os, recommended, requestDownload } = useDownload()
 
   const otherPlatforms = d.platforms.filter((p) => assets[p.key])
   const isDesktop = os === 'mac' || os === 'windows' || os === 'linux'
@@ -65,14 +65,6 @@ export default function Download() {
               ) : (
                 <div className="card text-sm text-slate-400">
                   <p>{error ? d.loadError : isDesktop ? d.noBuild : d.unsupported}</p>
-                  <a
-                    href={releasesPage}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-3 inline-block font-medium text-brand-soft"
-                  >
-                    {d.viewAll}
-                  </a>
                 </div>
               )}
             </div>
@@ -99,16 +91,8 @@ export default function Download() {
             </div>
           ) : null}
 
-          <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+          <div className="mt-8">
             <p className="text-sm text-slate-500">{d.note}</p>
-            <a
-              href={releasesPage}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm text-slate-500 hover:text-slate-300"
-            >
-              {d.viewAll}
-            </a>
           </div>
         </div>
       </div>
