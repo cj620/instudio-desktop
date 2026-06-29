@@ -38,6 +38,7 @@ function createSettings(patch: Partial<AppSettingsV1['write']['inlineCompletion'
       }
     },
     workspaceRoot: '/tmp/workspace',
+    conversationWorkspaceRoot: '~/Documents/Xiaoyuan',
     log: {
       enabled: true,
       retentionDays: 2
