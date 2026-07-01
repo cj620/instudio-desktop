@@ -2409,6 +2409,8 @@ export function Workbench(): ReactElement {
                 composerProviderId={resolvedWriteAssistantProviderId}
                 composerPickList={writeAssistantPickList}
                 composerModelGroups={composerModelGroups}
+                skillCommands={runtimeSkills}
+                disabledSkillIds={disabledSkillIds}
                 composerReasoningEffort={composerReasoningEffort}
                 setComposerModel={setWriteAssistantModel}
                 setComposerReasoningEffort={setComposerReasoningEffort}
