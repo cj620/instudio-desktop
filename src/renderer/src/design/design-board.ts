@@ -134,8 +134,24 @@ function isFoundationArtifact(artifact: DesignArtifact): boolean {
   return Boolean(inferDesignArtifactFoundationRole(artifact))
 }
 
+function foundationNodeLooksLegacyDefault(node: DesignArtifactNode | undefined): boolean {
+  if (!node || node.sizeMode !== 'manual') return false
+  const legacySizes = [
+    defaultPreviewNodeSizeForDesignTarget('web'),
+    defaultPreviewNodeSizeForDesignTarget('app'),
+    defaultFrameSizeForDesignTarget('app')
+  ]
+  return legacySizes.some(
+    (size) => Math.abs(node.width - size.width) < 1 && Math.abs(node.height - size.height) < 1
+  )
+}
+
 function shouldUseArtifactNodeForFrame(artifact: DesignArtifact, index: number): artifact is DesignArtifact & { node: DesignArtifactNode } {
-  return !isFoundationArtifact(artifact) && shouldUseArtifactNode(artifact.node, index)
+  if (!shouldUseArtifactNode(artifact.node, index)) return false
+  // Foundation docs used to be persisted as compact preview cards or app-sized
+  // placeholders. Keep upgrading those legacy defaults to full desktop frames,
+  // but trust any deliberate custom manual resize from the user.
+  return !isFoundationArtifact(artifact) || !foundationNodeLooksLegacyDefault(artifact.node)
 }
 
 function autoArtifactNode(artifact: DesignArtifact, index: number): DesignArtifactNode | null {

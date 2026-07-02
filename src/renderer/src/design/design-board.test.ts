@@ -215,6 +215,27 @@ describe('design board helpers', () => {
     })
   })
 
+  it('preserves custom manual foundation frame nodes when syncing unmounted artifacts', () => {
+    useDesignWorkspaceStore.setState({ designContext: { designTarget: 'app' } })
+    const system = artifact('system', 'html', {
+      title: '设计系统',
+      node: { x: 80, y: 120, width: 760, height: 1320, sizeMode: 'manual' }
+    })
+
+    const synced = syncHtmlArtifactsToBoardDocument(createEmptyDocument(), [system])
+
+    expect(synced.addedFrameIds).toHaveLength(1)
+    const frame = synced.document.objects[synced.addedFrameIds[0]]
+    expect(frame).toMatchObject({
+      htmlArtifactId: 'system',
+      x: 80,
+      y: 120,
+      width: 760,
+      height: 1320,
+      devicePreset: 'desktop'
+    })
+  })
+
   it('upgrades existing foundation frames from old manual mobile nodes to full desktop frames', () => {
     useDesignWorkspaceStore.setState({ designContext: { designTarget: 'app' } })
     const doc = createEmptyDocument()
@@ -239,6 +260,33 @@ describe('design board helpers', () => {
       y: 120,
       width: 1280,
       height: 800,
+      devicePreset: 'desktop'
+    })
+  })
+
+  it('keeps existing manually resized foundation frames fixed across board sync', () => {
+    useDesignWorkspaceStore.setState({ designContext: { designTarget: 'app' } })
+    const doc = createEmptyDocument()
+    const root = doc.objects[doc.rootId]
+    const existing = createHtmlFrameShape('设计系统', 80, 120, 'system', 'desktop')
+    existing.width = 760
+    existing.height = 1320
+    doc.objects[existing.id] = { ...existing, parentId: doc.rootId }
+    doc.objects[doc.rootId] = { ...root, children: [existing.id] }
+
+    const synced = syncHtmlArtifactsToBoardDocument(doc, [
+      artifact('system', 'html', {
+        title: '设计系统',
+        node: { x: 80, y: 120, width: 760, height: 1320, sizeMode: 'manual' }
+      })
+    ])
+
+    expect(synced.updatedFrameIds).toEqual([])
+    expect(synced.document.objects[existing.id]).toMatchObject({
+      x: 80,
+      y: 120,
+      width: 760,
+      height: 1320,
       devicePreset: 'desktop'
     })
   })

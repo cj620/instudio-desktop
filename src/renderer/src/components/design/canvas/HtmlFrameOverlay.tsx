@@ -145,6 +145,16 @@ export function htmlFrameShouldSuppressDocumentScrollbars({
   return documentHeight > measuredHeight + FRAME_AUTO_GROW_THRESHOLD
 }
 
+export function htmlFrameShouldApplyScrollbarSuppression({
+  autoResizeEnabled,
+  suppressScrollbars
+}: {
+  autoResizeEnabled: boolean
+  suppressScrollbars: boolean
+}): boolean {
+  return autoResizeEnabled && suppressScrollbars
+}
+
 export function buildHtmlFrameScrollbarSuppressionScript(suppress: boolean): string {
   const css = `
     html,
@@ -296,7 +306,6 @@ export function htmlFrameVisualCanvasHeight(
 
 export function shouldAutoResizeHtmlFrame({
   sizeMode,
-  role,
   previewStatus,
   parallelStatus
 }: {
@@ -305,25 +314,21 @@ export function shouldAutoResizeHtmlFrame({
   previewStatus?: 'pending' | 'ready' | 'error'
   parallelStatus?: 'queued' | 'running' | 'done' | 'failed'
 }): boolean {
-  return (
-    sizeMode !== 'manual' ||
-    Boolean(role) ||
-    previewStatus === 'pending' ||
-    parallelStatus === 'queued' ||
-    parallelStatus === 'running'
-  )
+  if (previewStatus === 'pending' || parallelStatus === 'queued' || parallelStatus === 'running') {
+    return true
+  }
+  return sizeMode !== 'manual'
 }
 
 /**
  * Only foundation reference docs (design system / logo) may auto-grow their
  * frame WIDTH from measured content — they legitimately need to widen to show
  * component grids/specimens. Regular screens represent a fixed device
- * viewport (e.g. a 390px-wide phone mockup); letting their measured width
- * feed back into the frame produces wildly inconsistent per-screen widths
- * (window.innerWidth-based width measurement is sensitive to webview zoom
- * timing), so their width must stay pinned to the device target regardless of
- * measured content. This must stay consistent with design-board.ts's
- * genericFrameSizeForArtifact, which is the other half of this width policy.
+ * viewport (e.g. a 390px-wide phone mockup); a device mockup's width should
+ * stay pinned to the device target regardless of measured content, the same
+ * way resizing a browser window doesn't change a phone's screen size. This
+ * must stay consistent with design-board.ts's genericFrameSizeForArtifact,
+ * which is the other half of this width policy.
  */
 export function htmlFrameAllowsWidthAutoGrow(foundationRole: DesignArtifactFoundationRole | undefined): boolean {
   return Boolean(foundationRole)
@@ -392,18 +397,29 @@ type WebviewElement = HTMLElement & {
 }
 
 /**
- * Electron/Chromium has a long-standing bug where CSS `transform: scale()` on a
- * `<webview>` (or any of its ancestors) produces cropped/double-scaled rendering
- * that gets progressively worse further from the transform origin — see
- * https://github.com/electron/electron/issues/2168 (upstream crbug.com/492182).
- * That is precisely what "renders fine near the top, blank/cropped further down a
- * tall frame" looks like. The documented fix is to size the `<webview>` at its
- * REAL on-screen pixel size (no CSS transform anywhere in its ancestor chain) and
- * use the webview's native zoom instead of CSS to scale its content.
+ * Electron/Chromium still renders transformed <webview> guests unreliably: the
+ * guest can paint as a cropped white sheet when any ancestor uses CSS scale.
+ * Keep the host element at its real on-screen size and scale guest contents via
+ * native zoom instead.
  */
 export function htmlFrameWebviewZoomFactor(zoom: number): number {
   if (!Number.isFinite(zoom) || zoom <= 0) return 1
   return Math.min(4, Math.max(0.05, zoom))
+}
+
+/**
+ * Chromium stores zoom by origin inside a session. Design frames all load
+ * file:// HTML, so sharing one partition lets one frame's zoom overwrite
+ * another's. A stable per-frame in-memory partition keeps native zoom local.
+ */
+export function htmlFrameWebviewPartition(shapeId: string): string {
+  const safeId = shapeId
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+  return `kun-proto-frame-${safeId || 'frame'}`
 }
 
 type ScreenOverlayProps = {
@@ -511,6 +527,12 @@ function ScreenOverlayInner({
     pagesRunPhase: pagesRun?.phase,
     pagesRunStep: pagesRun?.step,
     chatBusy
+  })
+  const autoResizeEnabled = shouldAutoResizeHtmlFrame({
+    sizeMode: artifact?.node?.sizeMode,
+    role: foundationRole,
+    previewStatus: artifact?.previewStatus,
+    parallelStatus: parallelState?.status
   })
 
   const setWebviewNode = useCallback((node: WebviewElement | null): void => {
@@ -874,21 +896,23 @@ function ScreenOverlayInner({
   useEffect(() => {
     const wv = webviewRef.current
     if (!webviewUrl) return
+    const shouldSuppressScrollbars = htmlFrameShouldApplyScrollbarSuppression({
+      autoResizeEnabled,
+      suppressScrollbars: suppressDocumentScrollbars
+    })
     void executeHtmlFrameWebviewScript(
       wv,
-      buildHtmlFrameScrollbarSuppressionScript(suppressDocumentScrollbars)
+      buildHtmlFrameScrollbarSuppressionScript(shouldSuppressScrollbars)
     )?.catch(() => undefined)
-  }, [revision, suppressDocumentScrollbars, webviewMountNonce, webviewUrl])
+  }, [autoResizeEnabled, revision, suppressDocumentScrollbars, webviewMountNonce, webviewUrl])
 
-  // Apply the webview's NATIVE zoom (not a CSS transform — see the comment above
-  // htmlFrameWebviewZoomFactor) so its content renders at canvasWidth x
-  // visualCanvasHeight logical size while the element itself only occupies the
-  // small on-screen box. `zoom` changes continuously during pan/zoom gestures, and
-  // setZoomFactor is comparatively expensive (a real re-layout in the guest), so
-  // debounce it during gestures — the CSS size (cheap, native <webview> resize)
-  // still tracks every frame, it is only the content's zoom that lags briefly.
-  // Re-apply immediately (no debounce) on every navigation, since a fresh guest
-  // page always starts back at 100% zoom.
+  useEffect(() => {
+    if (autoResizeEnabled) return
+    setSuppressDocumentScrollbars(false)
+  }, [autoResizeEnabled])
+
+  // Keep native zoom aligned with the canvas. Debounce continuous zoom gestures,
+  // but re-apply immediately on navigation because a fresh guest starts at 100%.
   const applyZoomFactor = useCallback((): void => {
     const wv = webviewRef.current
     if (typeof wv?.setZoomFactor !== 'function') return
@@ -916,12 +940,6 @@ function ScreenOverlayInner({
   const measureContentSize = useCallback((): void => {
     const wv = webviewRef.current
     if (!artifact?.id || artifactKind !== 'html') return
-    const allowAutoGrow = shouldAutoResizeHtmlFrame({
-      sizeMode: artifact.node?.sizeMode,
-      role: foundationRole,
-      previewStatus: artifact.previewStatus,
-      parallelStatus: parallelState?.status
-    })
     const measurement = executeHtmlFrameWebviewScript(wv, HTML_FRAME_CONTENT_SIZE_QUERY)
     if (!measurement) return
     void measurement
@@ -937,17 +955,21 @@ function ScreenOverlayInner({
         // lands the frame keeps the leftover space as a big white band below the
         // content. Mirroring DesignProjectCanvas, follow the real content height.
         const { nextWidth, nextHeight, suppressScrollbars } = decision
+        const shouldSuppressScrollbars = htmlFrameShouldApplyScrollbarSuppression({
+          autoResizeEnabled,
+          suppressScrollbars
+        })
         setMeasuredContentSize({ width: nextWidth, height: nextHeight })
-        setSuppressDocumentScrollbars(suppressScrollbars)
+        setSuppressDocumentScrollbars(shouldSuppressScrollbars)
         // A <webview> navigation replaces the guest document, so an already-true
         // React state value is not enough to keep the injected style alive across
         // streamed file reloads. Apply it to the CURRENT document immediately after
         // every measurement; the state/effect path still covers explicit toggles.
         void executeHtmlFrameWebviewScript(
           wv,
-          buildHtmlFrameScrollbarSuppressionScript(suppressScrollbars)
+          buildHtmlFrameScrollbarSuppressionScript(shouldSuppressScrollbars)
         )?.catch(() => undefined)
-        if (!allowAutoGrow) return
+        if (!autoResizeEnabled) return
         const widthChanged =
           htmlFrameAllowsWidthAutoGrow(foundationRole) &&
           Math.abs(nextWidth - current.width) > FRAME_AUTO_GROW_THRESHOLD
@@ -974,6 +996,7 @@ function ScreenOverlayInner({
     artifact?.node?.viewMode,
     artifact?.previewStatus,
     artifactKind,
+    autoResizeEnabled,
     foundationRole,
     parallelState?.status,
     shape.id
@@ -1272,15 +1295,13 @@ function ScreenOverlayInner({
               // in place via the `src` change while the old frame stays painted until
               // the next page is ready, so the canvas updates without a white flash.
               //
-              // Deliberately NOT css-transformed (see htmlFrameWebviewZoomFactor): the
-              // element is sized at its REAL on-screen pixel size and the guest's
-              // content is scaled via the native zoom API instead, avoiding a
-              // long-standing Chromium bug where transform-scaling a <webview>
-              // produces cropped/blank rendering that worsens away from the origin.
+              // CSS transform on <webview> paints blank/cropped regions in Electron.
+              // The element stays at its real screen size while native zoom gives
+              // the guest the intended logical canvas viewport.
               key={fileUrl}
               ref={setWebviewNode as React.Ref<WebviewElement>}
               src={fileUrl}
-              partition="kun-proto"
+              partition={htmlFrameWebviewPartition(shape.id)}
               webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes"
               className="block border-0"
               style={{
@@ -1344,11 +1365,6 @@ function ScreenOverlayInner({
             <div
               className="pointer-events-none absolute border border-accent bg-accent/10 shadow-[0_0_0_1px_rgba(255,255,255,0.75)]"
               style={{
-                // selectedElementRect comes from the guest's own getBoundingClientRect(),
-                // i.e. logical canvasWidth-space px (zoomFactor doesn't change how the
-                // guest reports its own coordinates). This overlay now sits in a
-                // screen-sized (not canvas-sized+transformed) wrapper, so project the
-                // logical rect into screen space explicitly.
                 left: selectedElementRect.left * zoom,
                 top: selectedElementRect.top * zoom,
                 width: selectedElementRect.width * zoom,
@@ -1358,7 +1374,7 @@ function ScreenOverlayInner({
           ) : null}
           {aiCursor ? (
             <div className="pointer-events-none absolute inset-0 overflow-hidden">
-              {/* Glow on the section the agent just wrote (logical -> screen space, see above) */}
+              {/* Glow on the section the agent just wrote */}
               <div
                 className="absolute rounded-[3px] border"
                 style={{
@@ -1374,9 +1390,7 @@ function ScreenOverlayInner({
                     'left 360ms cubic-bezier(0.22,1,0.36,1), top 360ms cubic-bezier(0.22,1,0.36,1), width 360ms ease, height 360ms ease'
                 }}
               />
-              {/* Animated AI cursor + label, clamped to stay visible. The -8/-2/-22 nudges
-                  are constant SCREEN px (like the rest of the UI chrome), applied after
-                  projecting the underlying rect into screen space. */}
+              {/* Animated AI cursor + label, clamped to stay visible */}
               <div
                 className="absolute flex items-center gap-1"
                 style={{

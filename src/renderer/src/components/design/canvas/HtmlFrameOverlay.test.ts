@@ -6,9 +6,11 @@ import {
   htmlFrameAllowsWidthAutoGrow,
   htmlFrameDrawingActive,
   htmlFrameOverlayPointerEvents,
+  htmlFrameShouldApplyScrollbarSuppression,
+  htmlFrameWebviewPartition,
+  htmlFrameWebviewZoomFactor,
   htmlFrameShouldSuppressDocumentScrollbars,
   htmlFrameVisualCanvasHeight,
-  htmlFrameWebviewZoomFactor,
   resolveHtmlFrameMeasurementDecision,
   shouldAutoResizeHtmlFrame,
   shouldRenderHtmlFrameWebview
@@ -169,7 +171,7 @@ describe('HtmlFrameOverlay pointer event policy', () => {
   })
 })
 
-describe('HtmlFrameOverlay webview native zoom factor', () => {
+describe('HtmlFrameOverlay native webview scaling', () => {
   it('passes normal zoom levels through unchanged', () => {
     expect(htmlFrameWebviewZoomFactor(1)).toBe(1)
     expect(htmlFrameWebviewZoomFactor(0.35)).toBe(0.35)
@@ -182,6 +184,13 @@ describe('HtmlFrameOverlay webview native zoom factor', () => {
     expect(htmlFrameWebviewZoomFactor(Number.NaN)).toBe(1)
     expect(htmlFrameWebviewZoomFactor(0.001)).toBe(0.05)
     expect(htmlFrameWebviewZoomFactor(50)).toBe(4)
+  })
+
+  it('uses a stable isolated partition per frame so file:// zoom does not leak', () => {
+    expect(htmlFrameWebviewPartition('Screen 1')).toBe('kun-proto-frame-screen-1')
+    expect(htmlFrameWebviewPartition('Screen 2')).toBe('kun-proto-frame-screen-2')
+    expect(htmlFrameWebviewPartition('Screen 1')).toBe('kun-proto-frame-screen-1')
+    expect(htmlFrameWebviewPartition('')).toBe('kun-proto-frame-frame')
   })
 })
 
@@ -319,6 +328,21 @@ describe('HtmlFrameOverlay internal scrollbar suppression', () => {
     })).toBe(false)
   })
 
+  it('only applies document scrollbar suppression while auto-resizing', () => {
+    expect(htmlFrameShouldApplyScrollbarSuppression({
+      autoResizeEnabled: true,
+      suppressScrollbars: true
+    })).toBe(true)
+    expect(htmlFrameShouldApplyScrollbarSuppression({
+      autoResizeEnabled: false,
+      suppressScrollbars: true
+    })).toBe(false)
+    expect(htmlFrameShouldApplyScrollbarSuppression({
+      autoResizeEnabled: true,
+      suppressScrollbars: false
+    })).toBe(false)
+  })
+
   it('builds a reversible webview scrollbar style injection', () => {
     expect(buildHtmlFrameScrollbarSuppressionScript(true)).toContain('overflow: hidden')
     expect(buildHtmlFrameScrollbarSuppressionScript(false)).toContain('existing.remove()')
@@ -395,21 +419,30 @@ describe('HtmlFrameOverlay width auto-grow policy', () => {
 })
 
 describe('HtmlFrameOverlay auto resize policy', () => {
-  it('keeps normal manual frames fixed but migrates foundation frames back to auto sizing', () => {
+  it('keeps settled manual frames fixed, including foundation docs', () => {
     expect(shouldAutoResizeHtmlFrame({ sizeMode: 'manual', previewStatus: 'ready' })).toBe(false)
     expect(shouldAutoResizeHtmlFrame({
       sizeMode: 'manual',
       role: 'design-system',
       previewStatus: 'ready'
-    })).toBe(true)
+    })).toBe(false)
     expect(shouldAutoResizeHtmlFrame({
       sizeMode: 'manual',
       role: 'logo',
       previewStatus: 'ready'
-    })).toBe(true)
+    })).toBe(false)
     expect(shouldAutoResizeHtmlFrame({
       sizeMode: 'manual',
       role: inferDesignArtifactFoundationRole({ title: '设计系统' }),
+      previewStatus: 'ready'
+    })).toBe(false)
+  })
+
+  it('auto-sizes unsettled or explicit auto frames', () => {
+    expect(shouldAutoResizeHtmlFrame({ previewStatus: 'ready' })).toBe(true)
+    expect(shouldAutoResizeHtmlFrame({
+      sizeMode: 'auto',
+      role: 'design-system',
       previewStatus: 'ready'
     })).toBe(true)
   })

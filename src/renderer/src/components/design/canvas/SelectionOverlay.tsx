@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CanvasShape, Rect } from '../../../design/canvas/canvas-types'
-import { ROOT_SHAPE_ID } from '../../../design/canvas/canvas-types'
+import { ROOT_SHAPE_ID, isHtmlFrame } from '../../../design/canvas/canvas-types'
 import { shapeGeometry } from '../../../design/canvas/canvas-types'
+import { useDesignWorkspaceStore } from '../../../design/design-workspace-store'
 import { getSelectionBounds } from '../../../design/canvas/canvas-hit-test'
 import {
   computeResizedBounds,
@@ -195,6 +196,32 @@ function SelectionOverlayInner({
           }
           if (patches.length > 0) {
             useCanvasUndoStore.getState().pushChange({ patches, label: 'resize' })
+          }
+          // Promote any resized HTML frame's artifact node to 'manual' HERE,
+          // synchronously on drag-end. The reactive shape->artifact reverse sync
+          // (syncHtmlFrameNodesToArtifacts, debounced ~180ms) never flips an
+          // artifact OUT of 'auto' once it's already 'auto' — it only keeps 'auto'
+          // frames in sync with the current design-target default. Left to that
+          // path alone, HtmlFrameOverlay's own live-measurement auto-grow (which
+          // gates on artifact.node.sizeMode still reading 'auto') would see its
+          // own scheduled remeasurement fire shortly after the drag and reset the
+          // frame straight back to the last measured content size — i.e. exactly
+          // "resize immediately snaps back". Setting sizeMode: 'manual' before
+          // that can happen stops HtmlFrameOverlay from ever overwriting a
+          // deliberate manual resize.
+          const designStore = useDesignWorkspaceStore.getState()
+          for (const { id } of patches) {
+            const shape = doc.objects[id]
+            if (!shape || !isHtmlFrame(shape) || !shape.htmlArtifactId) continue
+            designStore.updateArtifactNode(shape.htmlArtifactId, {
+              x: Math.round(shape.x),
+              y: Math.round(shape.y),
+              width: Math.round(shape.width),
+              height: Math.round(shape.height),
+              sizeMode: 'manual',
+              viewMode:
+                designStore.artifacts.find((item) => item.id === shape.htmlArtifactId)?.node?.viewMode ?? 'preview'
+            })
           }
         }
         resizeStateRef.current = null
