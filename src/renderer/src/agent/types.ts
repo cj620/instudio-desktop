@@ -334,6 +334,7 @@ export type ToolEventPayload = {
 export type RuntimeStatusEventPayload = {
   kind:
     | 'tool_result_upload_wait'
+    | 'model_request_retry'
     | 'tool_catalog_changed'
     | 'tool_storm_suppressed'
     | 'compaction_summary_fallback'
@@ -342,6 +343,10 @@ export type RuntimeStatusEventPayload = {
   createdAt?: string
   message?: string
   toolResultCount?: number
+  status?: number
+  attempt?: number
+  maxAttempts?: number
+  delayMs?: number
   changeKind?: 'additive' | 'breaking'
   toolName?: string
   callId?: string

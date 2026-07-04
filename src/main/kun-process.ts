@@ -474,6 +474,7 @@ export async function syncGuiManagedKunConfig(
     KunRuntimeSettingsV1,
     | 'apiKey'
     | 'mcpSearch'
+    | 'retry'
     | 'tokenEconomy'
     | 'toolOutputLimits'
     | 'storage'
@@ -555,6 +556,7 @@ export async function syncGuiManagedKunConfig(
     serve: {
       ...serve,
       storage,
+      retry: runtime.retry,
       tokenEconomy: tokenEconomyConfigForRuntime(runtime.tokenEconomy, existingTokenEconomy),
       toolOutputLimits: toolOutputLimitsConfigForRuntime(runtime.toolOutputLimits),
       headers: defaultClientHeaders,
@@ -921,6 +923,7 @@ function providersConfigForRuntime(settings: AppSettingsV1): Record<string, Reco
       ...(baseUrl ? { baseUrl } : {}),
       ...(provider.kind ? { kind: provider.kind } : {}),
       ...(provider.endpointFormat ? { endpointFormat: provider.endpointFormat } : {}),
+      retry: provider.retry,
       ...(proxyUrl ? { modelProxyUrl: proxyUrl } : {}),
       ...(resolved.headers ? { headers: resolved.headers } : {})
     }

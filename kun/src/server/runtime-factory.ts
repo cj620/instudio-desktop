@@ -59,6 +59,7 @@ import {
   type QualityConfig,
   type RolesConfig,
   type RuntimeTuningConfig,
+  type ModelRequestRetryConfig,
   type ServeProviderConfig,
   type StorageConfig,
   type ToolOutputLimitsConfig
@@ -109,6 +110,7 @@ export type KunServeRuntimeOptions = {
   baseUrl: string
   modelProxyUrl?: string
   endpointFormat?: ModelEndpointFormat
+  retry?: ModelRequestRetryConfig
   /**
    * Extra HTTP headers merged into every default-client request (last, so
    * they win). For providers that need more than a Bearer key — e.g. Codex
@@ -978,6 +980,7 @@ function buildModelClientRouterInput(
     apiKey: options.apiKey,
     modelProxyUrl: options.modelProxyUrl,
     endpointFormat: options.endpointFormat ?? DEFAULT_MODEL_ENDPOINT_FORMAT,
+    retry: options.retry,
     model: options.model,
     modelCapabilities,
     headers: options.headers,
@@ -995,6 +998,7 @@ function buildModelClientRouterInput(
         apiKey: provider.apiKey,
         modelProxyUrl: provider.modelProxyUrl ?? options.modelProxyUrl,
         endpointFormat: provider.endpointFormat ?? options.endpointFormat ?? DEFAULT_MODEL_ENDPOINT_FORMAT,
+        retry: provider.retry ?? options.retry,
         model: options.model,
         modelCapabilities,
         headers: provider.headers,
@@ -1030,6 +1034,7 @@ function mergeRuntimeConfigApplyOptions(
     baseUrl: serve.baseUrl ?? current.baseUrl,
     modelProxyUrl: serve.modelProxyUrl ?? current.modelProxyUrl,
     endpointFormat: serve.endpointFormat ?? current.endpointFormat,
+    retry: serve.retry ?? current.retry,
     headers: serve.headers ?? current.headers,
     providers: serve.providers ?? current.providers,
     model: serve.model ?? current.model,
