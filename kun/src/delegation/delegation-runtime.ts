@@ -214,6 +214,8 @@ export class DelegationRuntime {
     workspace?: string
     model?: string
     providerId?: string
+    /** Parent turn/thread provider id inherited by delegate_task when no profile overrides it. */
+    inheritedProviderId?: string
     profile?: string
     /** Forward GUI design-canvas scope into the child turn when present. */
     guiDesignCanvas?: boolean
@@ -257,7 +259,7 @@ export class DelegationRuntime {
     }
     const toolPolicy = profile?.toolPolicy ?? config.defaultToolPolicy
     const resolvedModel = input.model?.trim() || profile?.model
-    const resolvedProviderId = input.providerId?.trim() || profile?.providerId
+    const resolvedProviderId = input.providerId?.trim() || profile?.providerId || input.inheritedProviderId?.trim()
     const resolvedSystemPrompt = profile?.systemPrompt
     const resolvedAllowedTools = profile?.allowedTools
     const resolvedBlockedTools = profile?.blockedTools

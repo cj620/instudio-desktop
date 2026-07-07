@@ -1945,6 +1945,7 @@ export class AgentLoop {
             threadMode: effectiveMode,
             activePlanContext,
             guiDesignCanvas: turn?.guiDesignCanvas === true,
+            modelProviderId: providerId,
             modelCapabilities,
             activeSkillIds: skillResolution.activeSkillIds,
             allowedToolNames,
@@ -2113,6 +2114,7 @@ export class AgentLoop {
       threadMode: effectiveMode,
       activePlanContext,
       guiDesignCanvas: turn?.guiDesignCanvas === true,
+      modelProviderId: providerId,
       modelCapabilities,
       activeSkillIds: skillResolution.activeSkillIds,
       allowedToolNames,
@@ -2136,6 +2138,7 @@ export class AgentLoop {
     threadMode?: 'agent' | 'plan'
     activePlanContext?: GuiPlanContext
     guiDesignCanvas?: boolean
+    modelProviderId?: string
     modelCapabilities: ModelCapabilityMetadata
     activeSkillIds: readonly string[]
     allowedToolNames?: readonly string[]
@@ -2279,6 +2282,7 @@ export class AgentLoop {
     threadMode?: 'agent' | 'plan'
     activePlanContext?: GuiPlanContext
     guiDesignCanvas?: boolean
+    modelProviderId?: string
     modelCapabilities: ModelCapabilityMetadata
     activeSkillIds: readonly string[]
     allowedToolNames?: readonly string[]
@@ -2297,6 +2301,7 @@ export class AgentLoop {
       ...(input.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
       ...(input.imContext ? { imContext: true } : {}),
       model: input.modelCapabilities,
+      ...(input.modelProviderId ? { modelProviderId: input.modelProviderId } : {}),
       activeSkillIds: input.activeSkillIds,
       memoryPolicy: { enabled: Boolean(this.opts.memoryStore) },
       delegationPolicy: { enabled: false },
