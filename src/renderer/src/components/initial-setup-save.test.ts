@@ -8,12 +8,14 @@ import {
 } from '@shared/app-settings'
 import {
   buildInitialSetupSettings,
+  buildInitialSetupSettingsPatch,
   INITIAL_SETUP_PROVIDER_PRESETS,
   initialSetupAutoWirePlan,
   initialSetupDrafts,
   initialSetupProfileId,
   initialSetupSelection
 } from './initial-setup-save'
+import { settingsPatchSchema } from '../../../main/ipc/app-ipc-schemas'
 
 function settings(patch: Record<string, unknown> = {}): AppSettingsV1 {
   return normalizeAppSettings(patch as AppSettingsV1)
@@ -60,6 +62,11 @@ describe('initialSetupSelection', () => {
       agents: { kun: { approvalPolicy: 'on-request', sandboxMode: 'workspace-write' } }
     })
     expect(initialSetupSelection(current).permissionMode).toBe('workspace-write')
+
+    const trusted = settings({
+      agents: { kun: { approvalPolicy: 'auto', sandboxMode: 'workspace-write' } }
+    })
+    expect(initialSetupSelection(trusted).permissionMode).toBe('trusted-workspace')
   })
 })
 
@@ -115,16 +122,16 @@ describe('buildInitialSetupSettings', () => {
     const next = buildInitialSetupSettings(current, drafts, {
       presetId: 'deepseek',
       mode: 'api',
-      permissionMode: 'workspace-write'
+      permissionMode: 'trusted-workspace'
     })
 
     const runtime = getKunRuntimeSettings(next)
-    expect(runtime.approvalPolicy).toBe('on-request')
+    expect(runtime.approvalPolicy).toBe('auto')
     expect(runtime.sandboxMode).toBe('workspace-write')
   })
 
   it('preserves a non-UI permission policy when the selector is untouched', () => {
-    // A persisted policy the 5-mode UI cannot represent: stricter approval gate
+    // A persisted policy the 6-mode UI cannot represent: stricter approval gate
     // plus a sandboxed filesystem. Reopening onboarding seeds the selector from
     // the lossy fromSettings mapping (-> 'read-only'); when the user does not
     // move it, the save must leave the strict pair intact rather than rewrite it
@@ -163,11 +170,11 @@ describe('buildInitialSetupSettings', () => {
     const next = buildInitialSetupSettings(current, initialSetupDrafts(current), {
       presetId: 'deepseek',
       mode: 'api',
-      permissionMode: 'workspace-write'
+      permissionMode: 'trusted-workspace'
     })
 
     const runtime = getKunRuntimeSettings(next)
-    expect(runtime.approvalPolicy).toBe('on-request')
+    expect(runtime.approvalPolicy).toBe('auto')
     expect(runtime.sandboxMode).toBe('workspace-write')
   })
 
@@ -319,6 +326,30 @@ describe('buildInitialSetupSettings', () => {
     })
     const zenmux = getModelProviderSettings(next).providers.find((p) => p.id === 'custom-provider-2')
     expect(zenmux?.apiKey).toBe('z-key')
+  })
+})
+
+describe('buildInitialSetupSettingsPatch', () => {
+  it('omits legacy top-level instructions from the settings:set payload', () => {
+    const current = settings({
+      instructions: { enabled: true },
+      provider: { apiKey: '' },
+      agents: { kun: { providerId: 'deepseek' } }
+    })
+    const drafts = initialSetupDrafts(current)
+    drafts.deepseek = {
+      ...drafts.deepseek,
+      apiKey: 'sk-deepseek-key',
+      baseUrl: 'https://api.deepseek.com'
+    }
+
+    const patch = buildInitialSetupSettingsPatch(current, drafts, {
+      presetId: 'deepseek',
+      mode: 'api'
+    })
+
+    expect('instructions' in patch).toBe(false)
+    expect(settingsPatchSchema.parse(patch)).toEqual(patch)
   })
 })
 

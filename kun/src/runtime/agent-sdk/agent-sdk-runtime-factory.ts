@@ -13,10 +13,15 @@ import type { SessionStore } from '../../ports/session-store.js'
 import type { ThreadStore } from '../../ports/thread-store.js'
 import type { CapabilityRegistry } from '../../adapters/tool/capability-registry.js'
 import type { ToolHostContext } from '../../ports/tool-host.js'
-import type { ApprovalPolicy } from '../../contracts/policy.js'
+import {
+  DEFAULT_SANDBOX_MODE,
+  type ApprovalPolicy,
+  type SandboxMode
+} from '../../contracts/policy.js'
 import type { ServeProviderConfig } from '../../config/kun-config.js'
 import type { AttachmentStore } from '../../attachments/attachment-store.js'
 import type { SkillRuntime } from '../../skills/skill-runtime.js'
+import type { InstructionRuntime } from '../../instructions/instruction-runtime.js'
 import type { MemoryStore } from '../../memory/memory-store.js'
 import {
   PLAN_MODE_INSTRUCTION,
@@ -52,6 +57,7 @@ export interface AgentSdkRuntimeFactoryDeps {
   /** Provider ids whose kind is 'agent-sdk' (this runtime owns them). */
   agentSdkProviderIds: ReadonlySet<string>
   defaultApprovalPolicy: ApprovalPolicy
+  defaultSandboxMode?: SandboxMode
   /** Runtime default model — used as the Claude model when a thread carries a non-Anthropic id. */
   defaultModel?: string
   /** True when the runtime's own default provider is agent-sdk (Claude sub as main model). */
@@ -62,6 +68,8 @@ export interface AgentSdkRuntimeFactoryDeps {
   attachmentStore?: AttachmentStore
   /** Skill engine — injects the available-skills catalog + activated skills per turn. */
   skillRuntime?: SkillRuntime
+  /** Native Kun AGENTS.md instruction engine — injects global/workspace instructions per turn. */
+  instructionRuntime?: InstructionRuntime
   /** Long-term memory store — injects relevant memories per turn. */
   memoryStore?: MemoryStore
   /** Interactive-input gate — lets the bridged `user_input` tool surface kun's GUI panel. */
@@ -214,6 +222,7 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
     opts?: {
       planMode?: boolean
       guiPlan?: GuiPlanContext
+      sandboxMode?: SandboxMode
       awaitUserInput?: ToolHostContext['awaitUserInput']
     }
   ): ToolHostContext => ({
@@ -221,6 +230,7 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
     turnId,
     workspace,
     approvalPolicy: deps.defaultApprovalPolicy,
+    sandboxMode: opts?.sandboxMode ?? deps.defaultSandboxMode ?? DEFAULT_SANDBOX_MODE,
     abortSignal: new AbortController().signal,
     // Expose plan state so `create_plan` is advertised (listTools) and executable
     // (executeKunTool) on plan turns — both are gated on it.
@@ -265,6 +275,7 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
     async loadTurnContext(threadId, turnId): Promise<SdkTurnContext | null> {
       const thread = await deps.threadStore.get(threadId)
       if (!thread) return null
+      const turn = thread.turns.find((candidate) => candidate.id === turnId)
       const items = await deps.sessionStore.loadItems(threadId)
       const userItem = [...items]
         .reverse()
@@ -276,7 +287,8 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
       const images = await resolveImages(threadId, thread.workspace, attachmentIds)
       if (!userText.trim() && images.length === 0) return null
 
-      const providerCfg = thread.providerId ? deps.providerConfigs[thread.providerId] : undefined
+      const providerId = turn?.providerId?.trim() || thread.providerId?.trim()
+      const providerCfg = providerId ? deps.providerConfigs[providerId] : undefined
       const token = providerCfg?.apiKey?.trim() || deps.defaultToken?.trim()
       // Plan turns expose create_plan (and narrow kun tools to the plan-allowed
       // set); resolve before listing tools so the bridge sees create_plan.
@@ -285,6 +297,7 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
       const plan = resolveTurnPlanContext(thread, turnId)
       const ctx = toolContext(threadId, turnId, thread.workspace, {
         ...plan,
+        sandboxMode: thread.sandboxMode,
         awaitUserInput: makeAwaitUserInput(threadId, turnId, new AbortController().signal)
       })
       const bridgeableTools: BridgeableTool[] = deps.registry.listTools(ctx).map((spec) => ({
@@ -310,6 +323,9 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
       const skillResolution = deps.skillRuntime
         ? await deps.skillRuntime.resolveTurn({ prompt: userText, workspace: thread.workspace })
         : undefined
+      const instructionResolution = deps.instructionRuntime
+        ? await deps.instructionRuntime.resolveTurn({ workspace: thread.workspace })
+        : undefined
 
       let memoryBlocks: string[] = []
       if (deps.memoryStore && userText.trim()) {
@@ -324,9 +340,16 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
 
       const goalInstruction = planMode ? null : goalContinuationInstruction(thread.goal)
       const todoInstruction = planMode ? null : todoContinuationInstruction(thread.todos)
+      if (instructionResolution) {
+        await deps.turns.updateTurnMetadata(threadId, turnId, {
+          injectedInstructionSources: instructionResolution.sources,
+          instructionInjectionBytes: instructionResolution.injectedBytes
+        })
+      }
 
       const contextInstructions = [
         ...(planMode ? [PLAN_MODE_INSTRUCTION] : []),
+        ...(instructionResolution?.instruction ? [instructionResolution.instruction] : []),
         ...(goalInstruction ? [goalInstruction] : []),
         ...(todoInstruction ? [todoInstruction] : []),
         ...memoryBlocks,
@@ -339,11 +362,12 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
         userText,
         threadPersona: thread.systemPrompt?.trim() || undefined,
         approvalPolicy: deps.defaultApprovalPolicy,
+        sandboxMode: thread.sandboxMode,
         planMode,
         // Claude Code only accepts Anthropic models; coerce a thread's non-Claude
         // model (e.g. an old deepseek thread now routed to the subscription) to
         // the runtime default so the turn doesn't fail "model may not exist".
-        model: resolveSdkModel(thread.model, deps.defaultModel),
+        model: resolveSdkModel(turn?.model || thread.model, deps.defaultModel),
         oauthToken: token || undefined,
         ...(images.length ? { images } : {}),
         bridgeableTools,
@@ -359,6 +383,7 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
       // Real per-call signal so an interactive user_input cancels on turn abort.
       const ctx = toolContext(threadId, turnId, thread?.workspace ?? process.cwd(), {
         ...(plan ?? {}),
+        ...(thread?.sandboxMode ? { sandboxMode: thread.sandboxMode } : {}),
         awaitUserInput: makeAwaitUserInput(threadId, turnId, signal ?? new AbortController().signal)
       })
       try {

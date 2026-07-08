@@ -6,11 +6,14 @@ import type {
 } from '@shared/app-settings'
 import {
   DEFAULT_MODEL_PROVIDER_ID,
+  DEFAULT_PROMPT_OPTIMIZATION_PROMPT,
   DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL,
   DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS,
   DEFAULT_WRITE_INLINE_COMPLETION_MODEL,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS,
   DEFAULT_KUN_DATA_DIR,
+  DEFAULT_TOOL_OUTPUT_MAX_BYTES,
+  DEFAULT_TOOL_OUTPUT_MAX_LINES,
   MIN_KUN_LOCAL_PORT,
   WRITE_INLINE_COMPLETION_MODEL_IDS,
   defaultModelProviderSettings,
@@ -35,7 +38,9 @@ import {
   Loader2,
   LockKeyholeOpen,
   RefreshCw,
+  RotateCcw,
   Settings,
+  ShieldCheck,
   ShieldQuestion,
   Trash2
 } from 'lucide-react'
@@ -91,6 +96,13 @@ const TOOL_PERMISSION_OPTIONS: Array<{
     descriptionKey: 'toolPermissionWorkspaceWriteDesc',
     Icon: FolderPen,
     iconClass: 'border-indigo-400/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-200'
+  },
+  {
+    value: 'trusted-workspace',
+    labelKey: 'toolPermissionTrustedWorkspace',
+    descriptionKey: 'toolPermissionTrustedWorkspaceDesc',
+    Icon: ShieldCheck,
+    iconClass: 'border-teal-400/30 bg-teal-500/10 text-teal-700 dark:text-teal-200'
   },
   {
     value: 'bypass',
@@ -348,6 +360,7 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
     runtimeDiagnosticsNotice,
     refreshKunDiagnostics,
     disableMemoryRecord,
+    restoreMemoryRecord,
     deleteMemoryRecord,
     pickClawWorkspace,
     resetClawWorkspaceToDefault,
@@ -441,6 +454,10 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
       maxStringBytes: 524288
     }
   }
+  const toolOutputLimits = kun.toolOutputLimits ?? {
+    maxLines: DEFAULT_TOOL_OUTPUT_MAX_LINES,
+    maxBytes: DEFAULT_TOOL_OUTPUT_MAX_BYTES
+  }
   const updateMcpSearch = (patch: Record<string, unknown>): void => {
     updateKun({
       mcpSearch: {
@@ -492,6 +509,14 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
       }
     })
   }
+  const updateToolOutputLimits = (patch: Record<string, unknown>): void => {
+    updateKun({
+      toolOutputLimits: {
+        ...toolOutputLimits,
+        ...patch
+      }
+    })
+  }
   const updateToolStorm = (patch: Record<string, unknown>): void => {
     updateRuntimeTuning({
       toolStorm: {
@@ -515,6 +540,17 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
     mode: 'auto' as const,
     maxImageDimension: 1280,
     maxActionsPerTurn: 40
+  }
+  const instructions = kun.instructions ?? {
+    enabled: true
+  }
+  const updateInstructions = (patch: Record<string, unknown>): void => {
+    updateKun({
+      instructions: {
+        ...instructions,
+        ...patch
+      }
+    })
   }
   const updateComputerUse = (patch: Record<string, unknown>): void => {
     updateKun({
@@ -542,6 +578,35 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
   const activeProviderId = kun.providerId?.trim() || DEFAULT_MODEL_PROVIDER_ID
   const activeProvider = modelProviders.find((item) => item.id === activeProviderId) ?? modelProviders[0]
   const activeProviderModels = activeProvider?.models ?? []
+  const promptOptimization = {
+    enabled: false,
+    providerId: '',
+    model: '',
+    prompt: '',
+    timeoutMs: 60000,
+    ...(kun.promptOptimization ?? {})
+  }
+  const promptOptimizationProviderId = promptOptimization.providerId?.trim() || activeProviderId
+  const promptOptimizationProvider =
+    modelProviders.find((item) => item.id === promptOptimizationProviderId) ?? activeProvider
+  const promptOptimizationModels = promptOptimizationProvider?.models ?? []
+  const promptOptimizationDefaultModel = (() => {
+    const providerId = promptOptimizationProvider?.id ?? promptOptimizationProviderId
+    const smallModel = kun.smallModel?.trim() ?? ''
+    const smallProviderId = kun.smallModelProviderId?.trim() || activeProviderId
+    if (smallModel && smallProviderId === providerId) return smallModel
+    const mainModel = kun.model?.trim() ?? ''
+    if (mainModel && activeProviderId === providerId) return mainModel
+    return promptOptimizationModels[0] ?? mainModel
+  })()
+  const updatePromptOptimization = (patch: Record<string, unknown>): void => {
+    updateKun({
+      promptOptimization: {
+        ...promptOptimization,
+        ...patch
+      }
+    })
+  }
   const selectKunProvider = (providerId: string): void => {
     const nextProvider = modelProviders.find((item) => item.id === providerId) ?? activeProvider
     const nextModel = nextProvider?.models.includes(kun.model)
@@ -625,6 +690,87 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                       />
                     }
                   />
+                  <SettingRow
+                    title={t('kunPromptOptimization')}
+                    description={t('kunPromptOptimizationDesc')}
+                    control={
+                      <Toggle
+                        checked={promptOptimization.enabled}
+                        onChange={(enabled) => updatePromptOptimization({ enabled })}
+                      />
+                    }
+                  />
+                  {promptOptimization.enabled ? (
+                    <SettingRow
+                      title={t('kunPromptOptimizationConfig')}
+                      description={t('kunPromptOptimizationConfigDesc')}
+                      wideControl
+                      control={
+                        <div className="grid gap-3 lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)_minmax(120px,160px)]">
+                          <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
+                            {t('kunPromptOptimizationProvider')}
+                            <select
+                              className={selectControlClass}
+                              value={promptOptimization.providerId?.trim() || ''}
+                              onChange={(e) => {
+                                const providerId = e.target.value
+                                const nextProvider = modelProviders.find((item) => item.id === providerId) ?? activeProvider
+                                const keepModel = nextProvider?.models.includes(promptOptimization.model) === true
+                                updatePromptOptimization({
+                                  providerId,
+                                  model: keepModel ? promptOptimization.model : ''
+                                })
+                              }}
+                            >
+                              <option value="">{t('modelSelectDefaultSuffix', {
+                                model: activeProvider?.name ?? DEFAULT_MODEL_PROVIDER_ID
+                              })}</option>
+                              {modelProviders.map((item) => (
+                                <option key={item.id} value={item.id}>{item.name}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
+                            {t('kunPromptOptimizationModel')}
+                            <ModelSelect
+                              value={promptOptimization.model}
+                              options={promptOptimizationModels}
+                              defaultLabel={t('kunPromptOptimizationModelDefault', {
+                                model: promptOptimizationDefaultModel
+                              })}
+                              optionLabel={(model) => model}
+                              allowCustom
+                              customLabel={t('modelSelectCustomOption')}
+                              customPlaceholder={t('modelSelectCustomPlaceholder')}
+                              selectClassName={selectControlClass}
+                              onChange={(model) => updatePromptOptimization({ model: model.trim() })}
+                            />
+                          </label>
+                          <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
+                            {t('kunPromptOptimizationTimeout')}
+                            <input
+                              type="number"
+                              min={1000}
+                              max={600000}
+                              step={1000}
+                              className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                              value={promptOptimization.timeoutMs}
+                              onChange={(e) => updatePromptOptimization({ timeoutMs: Number(e.target.value) })}
+                            />
+                          </label>
+                          <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted lg:col-span-3">
+                            {t('kunPromptOptimizationPrompt')}
+                            <textarea
+                              value={promptOptimization.prompt}
+                              onChange={(e) => updatePromptOptimization({ prompt: e.target.value })}
+                              placeholder={DEFAULT_PROMPT_OPTIMIZATION_PROMPT}
+                              className="min-h-[140px] w-full resize-y rounded-xl border border-ds-border bg-ds-main/60 px-3 py-3 text-[13px] leading-6 text-ds-ink outline-none focus:border-accent/40 focus:ring-1 focus:ring-accent/25"
+                            />
+                          </label>
+                        </div>
+                      }
+                    />
+                  ) : null}
                   <div className="px-3 py-4">
                     <AdvancedSettingsDisclosure
                       title={t('kunAssistantAdvanced')}
@@ -695,15 +841,10 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                   />
                   <SettingRow
                     title={t('kunInsecure')}
-                    description={
-                      kun.runtimeToken.trim()
-                        ? t('kunInsecureDesc')
-                        : t('kunInsecureForcedDesc')
-                    }
+                    description={t('kunInsecureDesc')}
                     control={
                       <Toggle
                         checked={isKunRuntimeInsecure(kun)}
-                        disabled={!kun.runtimeToken.trim()}
                         onChange={(v) => updateKun({ insecure: v })}
                       />
                     }
@@ -735,6 +876,23 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                             )}
                           </div>
                         ) : null}
+                      </div>
+                    }
+                  />
+                  <SettingRow
+                    title={t('kunInstructions')}
+                    description={t('kunInstructionsDesc')}
+                    control={
+                      <div className="flex min-w-0 flex-col items-start gap-2 sm:items-end">
+                        <Toggle
+                          checked={instructions.enabled}
+                          onChange={(enabled) => updateInstructions({ enabled })}
+                        />
+                        <div className="max-w-full rounded-lg border border-ds-border-muted bg-ds-main/40 px-2.5 py-1.5 text-[12px] leading-5 text-ds-muted">
+                          {t('kunInstructionsDiagnostics', {
+                            count: toolDiagnostics?.instructions?.lastInjection?.sources?.length ?? runtimeInfo?.capabilities?.instructions?.lastSourceCount ?? 0
+                          })}
+                        </div>
                       </div>
                     }
                   />
@@ -1576,6 +1734,39 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                     }
                   />
                   <SettingRow
+                    title={t('kunToolOutputLimits')}
+                    description={t('kunToolOutputLimitsDesc')}
+                    wideControl
+                    control={
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
+                          {t('kunToolOutputMaxLines')}
+                          <input
+                            type="number"
+                            min={1}
+                            max={1000000}
+                            step={1000}
+                            className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                            value={toolOutputLimits.maxLines}
+                            onChange={(e) => updateToolOutputLimits({ maxLines: Number(e.target.value) })}
+                          />
+                        </label>
+                        <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
+                          {t('kunToolOutputMaxBytes')}
+                          <input
+                            type="number"
+                            min={1}
+                            max={67108864}
+                            step={1024}
+                            className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                            value={toolOutputLimits.maxBytes}
+                            onChange={(e) => updateToolOutputLimits({ maxBytes: Number(e.target.value) })}
+                          />
+                        </label>
+                      </div>
+                    }
+                  />
+                  <SettingRow
                     title={t('kunToolArgumentRepair')}
                     description={t('kunToolArgumentRepairDesc')}
                     control={
@@ -1614,6 +1805,7 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                           {[
                             ['MCP', runtimeInfo?.capabilities?.mcp?.status],
                             ['Web', runtimeInfo?.capabilities?.web?.status],
+                            ['Instructions', runtimeInfo?.capabilities?.instructions?.status],
                             ['Skills', runtimeInfo?.capabilities?.skills?.status],
                             ['Subagents', runtimeInfo?.capabilities?.subagents?.status],
                             ['Images', runtimeInfo?.capabilities?.attachments?.status],
@@ -1640,6 +1832,9 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                           </div>
                           <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
                             Web: <span className="font-mono text-ds-ink">{runtimeInfo?.capabilities?.web?.provider ?? 'none'}</span>
+                          </div>
+                          <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
+                            Instructions: <span className="font-mono text-ds-ink">{toolDiagnostics?.instructions?.lastInjection?.sources?.length ?? runtimeInfo?.capabilities?.instructions?.lastSourceCount ?? 0}</span>
                           </div>
                           {runtimeInfo?.capabilities?.subagents?.enabled ? (
                             <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
@@ -1711,16 +1906,27 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                                   </div>
                                 </div>
                                 <div className="flex shrink-0 items-center gap-1">
-                                  <button
-                                    type="button"
-                                    disabled={Boolean(memory.disabledAt)}
-                                    onClick={() => void disableMemoryRecord(memory.id)}
-                                    className="rounded-lg p-1.5 text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45"
-                                    aria-label={t('kunMemoryDisable')}
-                                    title={t('kunMemoryDisable')}
-                                  >
-                                    <Ban className="h-3.5 w-3.5" strokeWidth={1.8} />
-                                  </button>
+                                  {memory.disabledAt ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void restoreMemoryRecord(memory.id)}
+                                      className="rounded-lg p-1.5 text-ds-muted transition hover:bg-emerald-500/10 hover:text-emerald-600"
+                                      aria-label={t('memoryRestore')}
+                                      title={t('memoryRestore')}
+                                    >
+                                      <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.8} />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => void disableMemoryRecord(memory.id)}
+                                      className="rounded-lg p-1.5 text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+                                      aria-label={t('kunMemoryDisable')}
+                                      title={t('kunMemoryDisable')}
+                                    >
+                                      <Ban className="h-3.5 w-3.5" strokeWidth={1.8} />
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => void deleteMemoryRecord(memory.id)}

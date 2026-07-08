@@ -98,7 +98,9 @@ export type BuiltinToolName =
   | 'find'
   | 'ls'
   | 'lsp'
+  | 'repo_map'
   | 'verify_changes'
+  | 'send_im_attachment'
 export const allBuiltinToolNames: Set<BuiltinToolName> = new Set([
   'read',
   'bash',
@@ -108,7 +110,9 @@ export const allBuiltinToolNames: Set<BuiltinToolName> = new Set([
   'find',
   'ls',
   'lsp',
-  'verify_changes'
+  'repo_map',
+  'verify_changes',
+  'send_im_attachment'
 ])
 export type ToolName = BuiltinToolName
 export const allToolNames: Set<ToolName> = allBuiltinToolNames
@@ -147,6 +151,8 @@ export type BackgroundShellHooks = {
 
 export type BashLocalToolOptions = {
   defaultTimeoutSeconds?: number
+  maxLines?: number
+  maxBytes?: number
   operations?: BashLocalToolOperations
   backgroundShell?: BackgroundShellHooks
   backgroundShellDataDir?: string

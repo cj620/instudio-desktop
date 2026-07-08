@@ -7,10 +7,13 @@ import {
   DEFAULT_KUN_MODEL,
   DEFAULT_LOG_RETENTION_DAYS,
   DEFAULT_CURSOR_SPOTLIGHT_COLOR,
+  DEFAULT_GIT_BRANCH_PREFIX,
   DEFAULT_APPROVAL_POLICY,
   DEFAULT_SANDBOX_MODE,
   DEFAULT_WEIXIN_BRIDGE_RPC_URL,
   DEFAULT_SCHEDULE_INTERNAL_PORT,
+  DEFAULT_TOOL_OUTPUT_MAX_BYTES,
+  DEFAULT_TOOL_OUTPUT_MAX_LINES,
   buildClawRuntimePrompt,
   defaultClawSettings,
   defaultModelProviderSettings,
@@ -21,6 +24,7 @@ import {
   defaultWorkflowSettings,
   defaultTerminalSettings,
   defaultWriteSelectionAssistSettings,
+  defaultDesignSettings,
   defaultWriteSettings,
   getModelProviderPreset,
   defaultKeyboardShortcuts,
@@ -33,6 +37,8 @@ import {
   migrateLegacyAppSettings,
   normalizeAppSettings,
   normalizeChatContentMaxWidth,
+  normalizeGitBranchPrefix,
+  applyGitBranchPrefix,
   parseClawUserPromptForDisplay,
   inferModelEndpointFormatFromUrl,
   kunToolPermissionModeFromSettings,
@@ -69,6 +75,7 @@ function settings(): AppSettingsV1 {
     claw: defaultClawSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
+    design: defaultDesignSettings(),
     terminal: defaultTerminalSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: '',
@@ -87,6 +94,21 @@ describe('chat content max width', () => {
     expect(normalizeChatContentMaxWidth(896)).toBe(896)
     expect(normalizeChatContentMaxWidth(1300)).toBe(1200)
     expect(normalizeChatContentMaxWidth(905)).toBe(904)
+  })
+})
+
+describe('git branch prefix', () => {
+  it('normalizes separators and applies the default prefix once', () => {
+    expect(normalizeGitBranchPrefix(' feature ')).toBe('feature/')
+    expect(normalizeGitBranchPrefix('team\\')).toBe('team/')
+    expect(normalizeGitBranchPrefix(undefined)).toBe(DEFAULT_GIT_BRANCH_PREFIX)
+    expect(applyGitBranchPrefix('fix/workspace', 'codex/')).toBe('codex/fix/workspace')
+    expect(applyGitBranchPrefix('codex/fix/workspace', 'codex/')).toBe('codex/fix/workspace')
+  })
+
+  it('allows branch prefixes to be disabled', () => {
+    expect(normalizeGitBranchPrefix('')).toBe('')
+    expect(applyGitBranchPrefix('fix/workspace', '')).toBe('fix/workspace')
   })
 })
 
@@ -159,6 +181,10 @@ describe('kun defaults', () => {
       approvalPolicy: 'on-request',
       sandboxMode: 'workspace-write'
     })
+    expect(kunToolPermissionModeSettings('trusted-workspace')).toEqual({
+      approvalPolicy: 'auto',
+      sandboxMode: 'workspace-write'
+    })
     expect(kunToolPermissionModeSettings('bypass')).toEqual({
       approvalPolicy: 'auto',
       sandboxMode: 'danger-full-access'
@@ -176,6 +202,10 @@ describe('kun defaults', () => {
       approvalPolicy: 'on-request',
       sandboxMode: 'workspace-write'
     })).toBe('workspace-write')
+    expect(kunToolPermissionModeFromSettings({
+      approvalPolicy: 'auto',
+      sandboxMode: 'workspace-write'
+    })).toBe('trusted-workspace')
   })
 
   it('defaults token economy mode to off', () => {
@@ -194,6 +224,15 @@ describe('kun defaults', () => {
         maxArrayItems: 80
       }
     })
+  })
+
+  it('defaults tool output limits to 500kb and 20000 lines', () => {
+    expect(defaultKunRuntimeSettings().toolOutputLimits).toEqual({
+      maxLines: DEFAULT_TOOL_OUTPUT_MAX_LINES,
+      maxBytes: DEFAULT_TOOL_OUTPUT_MAX_BYTES
+    })
+    expect(defaultKunRuntimeSettings().toolOutputLimits.maxLines).toBe(20_000)
+    expect(defaultKunRuntimeSettings().toolOutputLimits.maxBytes).toBe(500 * 1024)
   })
 
   it('defaults MCP search discovery to off', () => {
@@ -215,6 +254,7 @@ describe('kun defaults', () => {
       apiKey: '',
       model: '',
       defaultSize: '',
+      quality: 'auto',
       timeoutMs: 180000
     })
   })
@@ -266,11 +306,11 @@ describe('kun defaults', () => {
         defaultHardThreshold: 108800,
         summaryMode: 'model',
         summaryTimeoutMs: 15000,
-        summaryMaxTokens: 1200,
+        summaryMaxTokens: 2048,
         summaryInputMaxBytes: 98304
       },
       runtimeTuning: {
-        streamIdleTimeoutMs: 45000,
+        streamIdleTimeoutMs: 450000,
         toolStorm: {
           enabled: true,
           windowSize: 8,
@@ -402,6 +442,24 @@ describe('claw settings', () => {
     expect(normalized.claw.im.weixinBridgeUrl).toBe('http://127.0.0.1:18787/rpc')
   })
 
+  it('normalizes the IM recent thread list limit', () => {
+    const defaults = defaultClawSettings()
+    expect(defaults.im.recentThreadListLimit).toBe(5)
+
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      claw: {
+        ...defaults,
+        im: {
+          ...defaults.im,
+          recentThreadListLimit: 500
+        }
+      }
+    })
+
+    expect(normalized.claw.im.recentThreadListLimit).toBe(50)
+  })
+
   it('migrates the legacy OpenClaw Gateway URL into the WeChat bridge URL', () => {
     const defaults = defaultClawSettings()
     const normalized = normalizeAppSettings({
@@ -488,14 +546,14 @@ describe('claw settings', () => {
 })
 
 describe('isKunRuntimeInsecure', () => {
-  it('treats an empty runtime token as effectively insecure', () => {
+  it('keeps auth enabled even when the runtime token is empty', () => {
     expect(
       isKunRuntimeInsecure({
         ...defaultKunRuntimeSettings(),
         insecure: false,
         runtimeToken: ''
       })
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('keeps auth enabled when a token exists and insecure is false', () => {
@@ -506,6 +564,16 @@ describe('isKunRuntimeInsecure', () => {
         runtimeToken: 'tok-1'
       })
     ).toBe(false)
+  })
+
+  it('honors explicit insecure mode', () => {
+    expect(
+      isKunRuntimeInsecure({
+        ...defaultKunRuntimeSettings(),
+        insecure: true,
+        runtimeToken: 'tok-1'
+      })
+    ).toBe(true)
   })
 })
 
@@ -550,6 +618,27 @@ describe('mergeKunRuntimeSettings', () => {
     expect(legacySwitch.tokenEconomy.enabled).toBe(false)
   })
 
+  it('deep-merges tool output limits and normalizes out-of-range values', () => {
+    const current = defaultKunRuntimeSettings()
+    const next = mergeKunRuntimeSettings(current, {
+      toolOutputLimits: {
+        maxBytes: 2 * 1024 * 1024
+      }
+    })
+
+    expect(next.toolOutputLimits.maxLines).toBe(current.toolOutputLimits.maxLines)
+    expect(next.toolOutputLimits.maxBytes).toBe(2 * 1024 * 1024)
+
+    const clamped = mergeKunRuntimeSettings(next, {
+      toolOutputLimits: {
+        maxLines: 9_999_999,
+        maxBytes: 999 * 1024 * 1024
+      }
+    })
+    expect(clamped.toolOutputLimits.maxLines).toBe(1_000_000)
+    expect(clamped.toolOutputLimits.maxBytes).toBe(64 * 1024 * 1024)
+  })
+
   it('deep-merges MCP search settings', () => {
     const current = defaultKunRuntimeSettings()
     const next = mergeKunRuntimeSettings(current, {
@@ -578,8 +667,20 @@ describe('mergeKunRuntimeSettings', () => {
     expect(kunToolPermissionModeFromSettings(next)).toBe('workspace-write')
   })
 
+  it('preserves trusted workspace when normalizing unified tool permission settings', () => {
+    const current = defaultKunRuntimeSettings()
+    const next = mergeKunRuntimeSettings(current, {
+      approvalPolicy: 'auto',
+      sandboxMode: 'workspace-write'
+    })
+
+    expect(next.approvalPolicy).toBe('auto')
+    expect(next.sandboxMode).toBe('workspace-write')
+    expect(kunToolPermissionModeFromSettings(next)).toBe('trusted-workspace')
+  })
+
   it('preserves non-UI approval/sandbox combinations instead of canonicalizing them', () => {
-    // The unified 5-mode selector cannot represent every approvalPolicy/sandboxMode
+    // The unified 6-mode selector cannot represent every approvalPolicy/sandboxMode
     // combination. mergeKunRuntimeSettings must NOT snap these to a canonical mode,
     // otherwise it would silently weaken a user's saved security posture.
     const current = defaultKunRuntimeSettings()
@@ -628,7 +729,7 @@ describe('mergeKunRuntimeSettings', () => {
 
   it('normalizes the stream idle timeout (0 disables, out-of-range clamps)', () => {
     const current = defaultKunRuntimeSettings()
-    expect(current.runtimeTuning.streamIdleTimeoutMs).toBe(45000)
+    expect(current.runtimeTuning.streamIdleTimeoutMs).toBe(450000)
 
     const set = mergeKunRuntimeSettings(current, {
       runtimeTuning: { streamIdleTimeoutMs: 300000 }
@@ -647,7 +748,7 @@ describe('mergeKunRuntimeSettings', () => {
     expect(
       mergeKunRuntimeSettings(current, { runtimeTuning: { streamIdleTimeoutMs: -5 } })
         .runtimeTuning.streamIdleTimeoutMs
-    ).toBe(45000)
+    ).toBe(450000)
     expect(
       mergeKunRuntimeSettings(current, { runtimeTuning: { streamIdleTimeoutMs: 999_999_999 } })
         .runtimeTuning.streamIdleTimeoutMs
@@ -673,20 +774,23 @@ describe('mergeKunRuntimeSettings', () => {
       apiKey: 'sk-image',
       model: 'Kwai-Kolors/Kolors',
       defaultSize: '',
+      quality: 'auto',
       timeoutMs: 180000
     })
 
     const sized = mergeKunRuntimeSettings(next, {
-      imageGeneration: { defaultSize: '1536x1024', timeoutMs: 240000 }
+      imageGeneration: { defaultSize: '1536x1024', quality: 'high', timeoutMs: 240000 }
     })
     expect(sized.imageGeneration.defaultSize).toBe('1536x1024')
+    expect(sized.imageGeneration.quality).toBe('high')
     expect(sized.imageGeneration.timeoutMs).toBe(240000)
     expect(sized.imageGeneration.apiKey).toBe('sk-image')
 
     const invalidSize = mergeKunRuntimeSettings(sized, {
-      imageGeneration: { defaultSize: 'huge', timeoutMs: -5 }
+      imageGeneration: { defaultSize: 'huge', quality: 'maximum' as never, timeoutMs: -5 }
     })
     expect(invalidSize.imageGeneration.defaultSize).toBe('')
+    expect(invalidSize.imageGeneration.quality).toBe('auto')
     expect(invalidSize.imageGeneration.timeoutMs).toBe(180000)
   })
 
@@ -896,6 +1000,15 @@ describe('legacy Kun defaults migration', () => {
     }))
   })
 
+  it('drops legacy top-level instructions during normalization', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      instructions: { enabled: true }
+    } as unknown as AppSettingsV1)
+
+    expect('instructions' in normalized).toBe(false)
+  })
+
   it('moves the legacy local HTTP default port to the Kun default port', () => {
     const migrated = migrateLegacyAppSettings({
       version: 1,
@@ -948,7 +1061,35 @@ describe('legacy Kun defaults migration', () => {
       apiKey: '',
       model: '',
       defaultSize: '',
+      quality: 'auto',
       timeoutMs: 180000
+    })
+  })
+
+  it('preserves the Codex responses image protocol during normalization', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      agents: {
+        kun: {
+          ...defaultKunRuntimeSettings(),
+          imageGeneration: {
+            ...defaultKunRuntimeSettings().imageGeneration,
+            enabled: true,
+            providerId: 'custom',
+            protocol: 'codex-responses-image',
+            baseUrl: 'https://chatgpt.com/backend-api/codex',
+            apiKey: 'codex-access',
+            model: 'gpt-image-2'
+          }
+        }
+      }
+    })
+
+    expect(normalized.agents.kun.imageGeneration).toMatchObject({
+      protocol: 'codex-responses-image',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      apiKey: 'codex-access',
+      model: 'gpt-image-2'
     })
   })
 
@@ -1162,6 +1303,7 @@ describe('claw runtime prompts', () => {
       apiKey: 'sk-image',
       model: 'test-image-model',
       defaultSize: '1024x1024',
+      quality: 'auto',
       timeoutMs: 180000
     }
 
@@ -1312,6 +1454,23 @@ describe('write inline completion runtime config', () => {
 })
 
 describe('write selection assist settings', () => {
+  it('keeps write auto-save enabled by default and preserves explicit opt-out', () => {
+    expect(defaultWriteSettings().autoSaveEnabled).toBe(true)
+    expect(defaultWriteSettings().autoSaveDelayMs).toBe(180_000)
+    expect(normalizeWriteSettings({}).autoSaveEnabled).toBe(true)
+    expect(normalizeWriteSettings({ autoSaveEnabled: false }).autoSaveEnabled).toBe(false)
+    expect(normalizeWriteSettings({ autoSaveDelayMs: 30_000 }).autoSaveDelayMs).toBe(30_000)
+    expect(normalizeWriteSettings({ autoSaveDelayMs: 1 }).autoSaveDelayMs).toBe(5_000)
+    expect(normalizeWriteSettings({ autoSaveDelayMs: 3_600_000 }).autoSaveDelayMs).toBe(1_800_000)
+
+    const next = mergeWriteSettings(defaultWriteSettings(), {
+      autoSaveEnabled: false,
+      autoSaveDelayMs: 120_000
+    })
+    expect(next.autoSaveEnabled).toBe(false)
+    expect(next.autoSaveDelayMs).toBe(120_000)
+  })
+
   it('defaults to the built-in quick actions with empty overrides', () => {
     const write = defaultWriteSettings()
     expect(write.selectionAssist.infographicPrompt).toBe('')

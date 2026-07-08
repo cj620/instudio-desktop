@@ -11,6 +11,8 @@ export type ModelStreamChunk =
   | { kind: 'assistant_reasoning_delta'; text: string }
   | { kind: 'tool_call_delta'; callId: string; toolName?: string; argumentsDelta?: string }
   | { kind: 'tool_call_complete'; callId: string; toolName: string; arguments: Record<string, unknown> }
+  | { kind: 'retrying'; status: number; attempt: number; maxAttempts: number; delayMs: number }
+  | { kind: 'image_generation_complete'; imageBase64: string; mimeType: string }
   | { kind: 'usage'; usage: UsageSnapshot }
   | { kind: 'completed'; stopReason: 'stop' | 'tool_calls' | 'length' | 'error' }
   | { kind: 'error'; message: string; code?: string }
@@ -48,6 +50,7 @@ export type ModelRequest = {
   history: TurnItem[]
   attachments?: ModelInputAttachment[]
   attachmentTextFallbacks?: ModelTextAttachmentFallback[]
+  attachmentDocuments?: ModelDocumentAttachment[]
   tools: ModelToolSpec[]
   /**
    * Optional loop-level requirement. The agent loop uses this to keep
@@ -92,6 +95,17 @@ export type ModelTextAttachmentFallback = {
   height?: number
   localFilePath?: string
   wasCompressed?: boolean
+}
+
+export type ModelDocumentAttachment = {
+  id: string
+  name: string
+  mimeType: string
+  text: string
+  byteSize: number
+  pageCount?: number
+  truncated?: boolean
+  localFilePath?: string
 }
 
 export type ModelToolSpec = {

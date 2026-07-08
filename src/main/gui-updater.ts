@@ -80,10 +80,26 @@ async function writeGuiVersionState(state: GuiVersionState): Promise<void> {
   await writeFile(path, JSON.stringify(state, null, 2), 'utf8')
 }
 
-function changelogUrl(): string {
-  const direct = envWithLegacyFallback('KUN_CHANGELOG_URL', 'DEEPSEEK_GUI_CHANGELOG_URL')
-  if (direct) return direct
-  return resolveGithubReleaseUrl() ?? `https://github.com/${DEFAULT_GITHUB_REPO}/releases`
+function normalizeChangelogVersion(version: string): string {
+  const cleaned = version.trim().replace(/^v/i, '')
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(cleaned) ? `v${cleaned}` : ''
+}
+
+function changelogRepoUrl(): string {
+  const repo = resolveGithubOwnerRepo() ?? DEFAULT_GITHUB_REPO
+  return `https://github.com/${repo}`
+}
+
+function changelogUrl(version?: string): string {
+  const normalizedVersion = normalizeChangelogVersion(version ?? '')
+  const configured = envWithLegacyFallback('KUN_CHANGELOG_URL', 'DEEPSEEK_GUI_CHANGELOG_URL')
+  if (configured) {
+    return normalizedVersion ? configured.replace(/\{version\}/g, normalizedVersion) : configured
+  }
+  const repoUrl = changelogRepoUrl()
+  return normalizedVersion
+    ? `${repoUrl}/blob/master/release/release-${encodeURIComponent(normalizedVersion)}.md`
+    : `${repoUrl}/tree/master/release`
 }
 
 function normalizeReleaseNotes(value: unknown): string | undefined {
@@ -548,6 +564,8 @@ export function initializeGuiUpdater(
 }
 
 export async function showPostUpdateReleaseNotes(): Promise<void> {
+  if (!app.isPackaged) return
+
   const currentVersion = app.getVersion().trim()
   const state = await readGuiVersionState()
   if (!state.lastSeenVersion) {
@@ -555,6 +573,7 @@ export async function showPostUpdateReleaseNotes(): Promise<void> {
     return
   }
   if (state.lastSeenVersion === currentVersion) return
+  if (!isVersionGreater(currentVersion, state.lastSeenVersion)) return
 
   const pendingUpdate =
     state.pendingUpdate?.version === currentVersion ? state.pendingUpdate : undefined
@@ -582,7 +601,7 @@ export async function showPostUpdateReleaseNotes(): Promise<void> {
       ? await dialog.showMessageBox(window, options)
       : await dialog.showMessageBox(options)
   if (result.response === 0) {
-    await shell.openExternal(changelogUrl())
+    await shell.openExternal(changelogUrl(currentVersion))
   }
 }
 

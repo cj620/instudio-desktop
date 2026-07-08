@@ -9,7 +9,9 @@ import { getProvider } from '../../agent/registry'
 import { parseWritePromptForDisplay } from '../../write/quoted-selection'
 import { parseClawUserPromptForDisplay, type ClawUserPromptDisplay } from '@shared/app-settings'
 import { parseBackgroundShellCompletionNotice } from '@shared/background-shell-notice'
-import { isBackgroundShellNoticeBlock } from './message-timeline-turns'
+import { parseBackgroundSubagentCompletionNotice } from '@shared/background-subagent-notice'
+import type { WriteExportFormat } from '@shared/write-export'
+import { isBackgroundShellNoticeBlock, isBackgroundSubagentNoticeBlock } from './message-timeline-turns'
 import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
 import { DiffView } from '../DiffView'
 import { AssistantMarkdown } from './AssistantMarkdown'
@@ -20,6 +22,7 @@ import { answersByQuestionId, shouldShowQuestionHeader } from './user-input-pane
 import { InjectedMemoryMetaChip } from './injected-memory-meta-chip'
 
 const COPY_FEEDBACK_RESET_MS = 1600
+const ASSISTANT_EXPORT_FORMATS: WriteExportFormat[] = ['pdf', 'docx', 'png', 'html']
 
 function BackgroundShellNoticeBubble({
   block,
@@ -117,6 +120,83 @@ function BackgroundShellNoticeBubble({
                 {t('backgroundShellNotice.outputFile', { defaultValue: 'Full output file' })}: {parsed.outputFile}
               </p>
             ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function BackgroundSubagentNoticeBubble({
+  block,
+  nested = false
+}: {
+  block: Extract<ChatBlock, { kind: 'user' }>
+  nested?: boolean
+}): ReactElement {
+  const { t } = useTranslation('common')
+  const parsed = useMemo(() => parseBackgroundSubagentCompletionNotice(block.text), [block.text])
+  const title =
+    block.meta?.displayText?.trim() ||
+    t('backgroundSubagentNotice.title', { defaultValue: 'Background subagent completed' })
+  const isFailed = parsed?.status === 'failed'
+  const statusTone = isFailed
+    ? 'border-orange-400/30 bg-orange-500/10 text-orange-800 dark:text-orange-200'
+    : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+
+  return (
+    <div className={nested ? 'min-w-0' : 'flex w-full justify-start'}>
+      <div className="w-full max-w-[min(640px,calc(100vw-3rem))] rounded-[18px] border border-accent/25 bg-[linear-gradient(180deg,rgba(79,124,255,0.06),rgba(79,124,255,0.1))] px-3.5 py-3 text-ds-muted shadow-sm">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent">
+            {t('backgroundSubagentNotice.kindLabel', { defaultValue: 'Background callback' })}
+          </span>
+          {parsed ? (
+            <>
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-ds-border/80 bg-ds-card/70 px-2 py-0.5 font-mono text-[11px] text-ds-ink"
+                title={parsed.childId}
+              >
+                <span className="font-sans font-medium text-ds-muted">
+                  {t('backgroundSubagentNotice.childId', { defaultValue: 'Child' })}
+                </span>
+                <span>{parsed.childId}</span>
+              </span>
+              <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${statusTone}`}>
+                <span className="font-medium opacity-80">
+                  {t('backgroundSubagentNotice.status', { defaultValue: 'Status' })}
+                </span>
+                <span>{parsed.status}</span>
+              </span>
+            </>
+          ) : null}
+        </div>
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium text-ds-ink">{title}</p>
+          {parsed?.label ? (
+            <dl className="mt-2 space-y-1.5 text-[12.5px] leading-5">
+              <div className="flex flex-wrap gap-x-2">
+                <dt className="font-medium text-ds-muted">
+                  {t('backgroundSubagentNotice.agent', { defaultValue: 'Agent' })}
+                </dt>
+                <dd className="min-w-0 break-words text-ds-ink">{parsed.label}</dd>
+              </div>
+            </dl>
+          ) : null}
+          {parsed?.summary ? (
+            <div className="mt-2.5">
+              <p className="text-[12px] font-medium text-ds-muted">
+                {t('backgroundSubagentNotice.summary', { defaultValue: 'Summary' })}
+              </p>
+              <div className="ds-markdown mt-1 rounded-[10px] border border-ds-border/70 bg-ds-card/70 px-2.5 py-2 text-[12.5px] leading-5 text-ds-ink">
+                <AssistantMarkdown text={parsed.summary} streaming={false} />
+              </div>
+            </div>
+          ) : null}
+          {parsed?.error ? (
+            <pre className="mt-2.5 overflow-auto whitespace-pre-wrap break-words rounded-[10px] border border-orange-400/30 bg-orange-500/10 px-2.5 py-2 font-mono text-[11.5px] leading-5 text-orange-900 dark:text-orange-100">
+              {parsed.error}
+            </pre>
+          ) : null}
         </div>
       </div>
     </div>
@@ -342,6 +422,20 @@ function metaStringArray(meta: Record<string, unknown> | undefined, key: string)
   const value = meta?.[key]
   if (!Array.isArray(value)) return []
   return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+}
+
+function metaInstructionSources(meta: Record<string, unknown> | undefined): Array<{ path: string; scope: string }> {
+  const value = meta?.injectedInstructionSources
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null
+      const raw = entry as Record<string, unknown>
+      const path = typeof raw.path === 'string' && raw.path.trim() ? raw.path.trim() : ''
+      const scope = typeof raw.scope === 'string' && raw.scope.trim() ? raw.scope.trim() : ''
+      return path ? { path, scope } : null
+    })
+    .filter((entry): entry is { path: string; scope: string } => entry !== null)
 }
 
 function metaString(meta: Record<string, unknown> | undefined, key: string): string | undefined {
@@ -874,16 +968,15 @@ function MediaAttachmentGallery({
 
 export function GeneratedFilesPanel({ blocks }: { blocks: ToolBlock[] }): ReactElement | null {
   const { t } = useTranslation('common')
-  const media = useMemo(
-    () =>
-      blocks.flatMap((block) =>
-        mergeMediaReferences(
-          metaAttachmentReferences(block.meta as RuntimeDisclosureMetadata | undefined),
-          metaGeneratedFileReferences(block.meta)
-        )
-      ),
-    [blocks]
-  )
+  const media = useMemo(() => {
+    const attachments: AttachmentReference[] = []
+    const generatedFiles: GeneratedFileReference[] = []
+    for (const block of blocks) {
+      attachments.push(...metaAttachmentReferences(block.meta as RuntimeDisclosureMetadata | undefined))
+      generatedFiles.push(...metaGeneratedFileReferences(block.meta))
+    }
+    return mergeMediaReferences(attachments, generatedFiles)
+  }, [blocks])
 
   if (media.length === 0) return null
 
@@ -965,6 +1058,7 @@ function RuntimeMetaChips({
   const attachmentIds = hideTurnDisclosure || hideAttachments ? [] : metaStringArray(meta, 'attachmentIds')
   const activeSkillIds = hideTurnDisclosure ? [] : metaStringArray(meta, 'activeSkillIds')
   const injectedMemoryIds = hideTurnDisclosure ? [] : metaStringArray(meta, 'injectedMemoryIds')
+  const injectedInstructionSources = hideTurnDisclosure ? [] : metaInstructionSources(meta)
   const sources = metaSources(meta)
   const child = meta?.child && typeof meta.child === 'object' ? meta.child as Record<string, unknown> : null
   const childLabel =
@@ -979,6 +1073,7 @@ function RuntimeMetaChips({
     (hideAttachments || attachmentIds.length === 0) &&
     activeSkillIds.length === 0 &&
     injectedMemoryIds.length === 0 &&
+    injectedInstructionSources.length === 0 &&
     sources.length === 0 &&
     !childLabel
   ) {
@@ -999,6 +1094,11 @@ function RuntimeMetaChips({
       ) : null}
       {injectedMemoryIds.length > 0 ? (
         <InjectedMemoryMetaChip meta={meta} memoryIds={injectedMemoryIds} chipClass={chipClass} />
+      ) : null}
+      {injectedInstructionSources.length > 0 ? (
+        <span className={chipClass} title={injectedInstructionSources.map((source) => `${source.scope}: ${source.path}`).join('\n')}>
+          {t('toolInjectedInstructions')} {injectedInstructionSources.length}
+        </span>
       ) : null}
       {childLabel ? (
         <span className={chipClass} title={childLabel}>
@@ -1094,6 +1194,95 @@ function CopyFeedbackButton({
       )}
       {!iconOnly ? <span>{label}</span> : null}
     </button>
+  )
+}
+
+function AssistantExportButton({
+  text,
+  createdAt
+}: {
+  text: string
+  createdAt?: string
+}): ReactElement {
+  const { t } = useTranslation('common')
+  const workspaceRoot = useChatStore((state) => state.workspaceRoot)
+  const detailsRef = useRef<HTMLDetailsElement | null>(null)
+  const [exportingFormat, setExportingFormat] = useState<WriteExportFormat | null>(null)
+  const [error, setError] = useState('')
+
+  const handleExport = async (format: WriteExportFormat): Promise<void> => {
+    if (typeof window.kunGui?.exportWriteDocument !== 'function') {
+      setError(t('writeExportUnavailable'))
+      return
+    }
+
+    setError('')
+    setExportingFormat(format)
+    try {
+      const parsedDate = createdAt ? new Date(createdAt) : new Date()
+      const date = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate
+      const title = `Kun-answer-${date.toISOString().replace(/[:.]/g, '-')}`
+      const result = await window.kunGui.exportWriteDocument({
+        title,
+        workspaceRoot: workspaceRoot || undefined,
+        format,
+        content: text
+      })
+      if (!result.ok && !result.canceled) {
+        setError(result.message)
+      } else if (result.ok) {
+        detailsRef.current?.removeAttribute('open')
+      }
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : String(exportError))
+    } finally {
+      setExportingFormat(null)
+    }
+  }
+
+  return (
+    <details ref={detailsRef} className="relative">
+      <summary
+        className="flex cursor-pointer list-none items-center gap-1 rounded-md px-1.5 py-0.5 text-ds-faint transition hover:bg-ds-hover hover:text-ds-muted"
+        title={error ? t('exportAnswerFailed', { message: error }) : t('exportAnswer')}
+        aria-label={t('exportAnswer')}
+      >
+        {exportingFormat ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.8} />
+        ) : (
+          <Download className="h-3.5 w-3.5" strokeWidth={1.8} />
+        )}
+        <span>{exportingFormat ? t('writeExporting') : t('exportAnswer')}</span>
+      </summary>
+      <div className="absolute bottom-full right-0 z-30 mb-1 min-w-36 rounded-xl border border-ds-border-muted bg-ds-card p-1.5 shadow-xl">
+        {ASSISTANT_EXPORT_FORMATS.map((format) => {
+          const label =
+            format === 'pdf'
+              ? t('writeExportPdf')
+              : format === 'png'
+                ? t('writeExportPng')
+                : format === 'html'
+                  ? t('writeExportHtml')
+                  : t('writeExportDocx')
+          return (
+            <button
+              key={format}
+              type="button"
+              disabled={exportingFormat !== null}
+              onClick={() => void handleExport(format)}
+              className="flex w-full items-center rounded-lg px-2.5 py-1.5 text-left text-[12px] text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:opacity-60"
+            >
+              {label}
+            </button>
+          )
+        })}
+        {error ? (
+          <p className="max-w-64 px-2.5 py-1 text-[11px] leading-4 text-rose-500">
+            {t('exportAnswerFailed', { message: error })}
+          </p>
+        ) : null}
+      </div>
+    </details>
   )
 }
 
@@ -1359,6 +1548,9 @@ function MessageBubbleImpl({
   if (block.kind === 'user' && isBackgroundShellNoticeBlock(block)) {
     return <BackgroundShellNoticeBubble block={block} nested={nested} />
   }
+  if (block.kind === 'user' && isBackgroundSubagentNoticeBlock(block)) {
+    return <BackgroundSubagentNoticeBubble block={block} nested={nested} />
+  }
   if (block.kind === 'user') {
     return <UserMessageBubble block={block} />
   }
@@ -1402,6 +1594,7 @@ function MessageBubbleImpl({
                   <span>{forkAction.busy ? t('forkingThread') : t('forkResponse')}</span>
                 </button>
               ) : null}
+              <AssistantExportButton text={block.text} createdAt={block.createdAt} />
               <CopyFeedbackButton text={block.text} />
             </div>
           </div>

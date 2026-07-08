@@ -22,18 +22,22 @@ import { extractUnifiedDiffText } from '../../lib/diff-stats'
 import { useDeferredRender } from '../../hooks/use-deferred-render'
 import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
 import { previewWorkspaceFile } from '../../lib/workspace-file-preview'
-import { useChatStore } from '../../store/chat-store'
 import { DiffView } from '../DiffView'
 import { AssistantMarkdown } from './AssistantMarkdown'
 import { MessageBubble } from './message-timeline-bubbles'
-import { blockHasPendingRuntimeWork, isBackgroundShellNoticeBlock, splitThink } from './message-timeline-turns'
+import {
+  blockHasPendingRuntimeWork,
+  isBackgroundShellNoticeBlock,
+  isBackgroundSubagentNoticeBlock,
+  splitThink
+} from './message-timeline-turns'
 import {
   formatDuration,
   formatToolTitle,
   isBackgroundShellCommandBlock,
   summarizeBackgroundShellToolBlock
 } from './message-timeline-tools'
-import { SubagentGroup } from './SubagentCallCard'
+import { SubagentGroup, type OpenChildThreadHandler } from './SubagentCallCard'
 import { InjectedMemoryMetaChip } from './injected-memory-meta-chip'
 
 export type ProcessSection = {
@@ -204,20 +208,20 @@ export function ProcessSectionRow({
   processing,
   reasoningDurationMs,
   singleReasoningSection,
-  viewportRef
+  workspaceRoot,
+  viewportRef,
+  onOpenChildThread
 }: {
   section: ProcessSection
   processing: boolean
   reasoningDurationMs?: number
   singleReasoningSection: boolean
+  workspaceRoot: string
   viewportRef: RefObject<HTMLDivElement | null>
+  onOpenChildThread?: OpenChildThreadHandler
 }): ReactElement {
   const { t } = useTranslation('common')
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
-
-  if (section.kind === 'subagent') {
-    return <SubagentGroup blocks={section.blocks} />
-  }
 
   const assistantBlocks =
     section.kind === 'output'
@@ -245,16 +249,21 @@ export function ProcessSectionRow({
   const reasoningText = section.kind === 'reasoning' ? getReasoningSectionText(section) : ''
   const canToggleSection = hasDetails && !forceExpanded
   const showActiveError = active && hasError
+  const shouldDeferDetails = section.kind !== 'subagent'
   const { ref: deferredDetailRef, shouldRender: shouldRenderDetail } = useDeferredRender<HTMLDivElement>({
-    enabled: expanded,
-    immediate: active || section.kind === 'execution',
+    enabled: shouldDeferDetails && expanded,
+    immediate: shouldDeferDetails && (active || section.kind === 'execution'),
     root: viewportRef
   })
+
+  if (section.kind === 'subagent') {
+    return <SubagentGroup blocks={section.blocks} onOpenChildThread={onOpenChildThread} />
+  }
 
   if (section.kind === 'execution' && section.blocks.length === 1) {
     const [block] = section.blocks
     if (block) {
-      return <ProcessEntryRow block={block} processing={processing} />
+      return <ProcessEntryRow block={block} processing={processing} workspaceRoot={workspaceRoot} />
     }
   }
 
@@ -328,7 +337,7 @@ export function ProcessSectionRow({
               <AssistantMarkdown text={reasoningText} streaming={active && processing} />
             </div>
           ) : (
-            <ProcessStackRows blocks={section.blocks} processing={processing} />
+            <ProcessStackRows blocks={section.blocks} processing={processing} workspaceRoot={workspaceRoot} />
           )
           ) : null}
         </div>
@@ -364,10 +373,12 @@ function processBlockHasError(block: ChatBlock): boolean {
 
 function ProcessStackRows({
   blocks,
-  processing
+  processing,
+  workspaceRoot
 }: {
   blocks: ChatBlock[]
   processing: boolean
+  workspaceRoot: string
 }): ReactElement {
   const { t } = useTranslation('common')
   const [openBlockId, setOpenBlockId] = useState<string | null>(null)
@@ -384,8 +395,7 @@ function ProcessStackRows({
         const autoOpenPending = processBlockIsAutoOpenPending(block, processing) || isPendingApproval(block)
         const errorTone = processBlockErrorTone(block)
         const isError = errorTone !== null
-        // Tool-call errors stay collapsed (red header only); other error blocks still auto-open.
-        const defaultOpen = isError && block.kind !== 'tool'
+        const defaultOpen = processing && isError
         const forceOpen = autoOpenPending || autoOpenRequestInput
         const userClosed = closedBlockIds.has(block.id)
         const userOpened = openBlockId === block.id
@@ -441,7 +451,7 @@ function ProcessStackRows({
             >
               {RowIcon ? <ProcessGlyph Icon={RowIcon} /> : null}
               <span className={`min-w-0 flex-1 truncate ${rowActive && !isError ? 'ds-shiny-text' : ''}`}>
-                <ProcessSummaryText block={block} summary={summary} />
+                <ProcessSummaryText block={block} summary={summary} workspaceRoot={workspaceRoot} />
               </span>
               {canExpand ? (
                 <button
@@ -483,10 +493,12 @@ function ProcessStackRows({
 /** One line inside an execution section. */
 function ProcessEntryRow({
   block,
-  processing
+  processing,
+  workspaceRoot
 }: {
   block: ChatBlock
   processing: boolean
+  workspaceRoot: string
 }): ReactElement {
   const { t } = useTranslation('common')
   const [userOpen, setUserOpen] = useState<boolean | null>(null)
@@ -500,8 +512,7 @@ function ProcessEntryRow({
   const errorTone = processBlockErrorTone(block)
   const isError = errorTone !== null
   const forceOpen = isAutoOpenPending || isAssistantProcessText || isStreamingAssistant
-  // Tool-call errors stay collapsed (red header only); other error blocks still auto-open.
-  const defaultOpen = isError && block.kind !== 'tool'
+  const defaultOpen = processing && isError
   const open =
     canExpand &&
     (forceOpen || (userOpen ?? defaultOpen))
@@ -557,7 +568,7 @@ function ProcessEntryRow({
           </span>
           {rest ? (
             <span className="ml-1.5 font-mono text-[13px]">
-              <ProcessSummaryText block={block} summary={rest} />
+              <ProcessSummaryText block={block} summary={rest} workspaceRoot={workspaceRoot} />
             </span>
           ) : null}
         </span>
@@ -723,6 +734,7 @@ function processBlockIcon(block: ChatBlock): LucideIcon | null {
   if (block.kind === 'approval') return Wrench
   if (block.kind === 'user_input') return MessageSquareQuote
   if (isBackgroundShellNoticeBlock(block)) return BellRing
+  if (isBackgroundSubagentNoticeBlock(block)) return BellRing
   if (block.kind !== 'tool') return null
   return toolBlockIcon(block)
 }
@@ -793,13 +805,14 @@ function toolFilePath(block: ToolBlock): string | undefined {
 
 function ProcessFileReference({
   path,
+  workspaceRoot,
   children
 }: {
   path: string
+  workspaceRoot: string
   children: string
 }): ReactElement {
   const { t } = useTranslation('common')
-  const workspaceRoot = useChatStore((s) => s.workspaceRoot)
 
   const stopRowToggle = (event: ReactMouseEvent<HTMLElement>): void => {
     event.stopPropagation()
@@ -840,10 +853,12 @@ function ProcessFileReference({
 
 function ProcessSummaryText({
   block,
-  summary
+  summary,
+  workspaceRoot
 }: {
   block: ChatBlock
   summary: string
+  workspaceRoot: string
 }): ReactElement {
   if (block.kind !== 'tool') return <>{summary}</>
   const path = toolFilePath(block)
@@ -855,7 +870,7 @@ function ProcessSummaryText({
   return (
     <>
       {before}
-      <ProcessFileReference path={path}>{path}</ProcessFileReference>
+      <ProcessFileReference path={path} workspaceRoot={workspaceRoot}>{path}</ProcessFileReference>
       {after}
     </>
   )
@@ -869,6 +884,7 @@ type ProcessDetail =
   | { kind: 'approval' }
   | { kind: 'user_input' }
   | { kind: 'background_shell' }
+  | { kind: 'background_subagent' }
   | { kind: 'text'; text: string }
 
 function summarizeProcessText(text: string, max = 96): string {
@@ -946,6 +962,20 @@ function readMetaStringArray(meta: Record<string, unknown> | undefined, key: str
   return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
 }
 
+function readMetaInstructionSources(meta: Record<string, unknown> | undefined): Array<{ path: string; scope: string }> {
+  const value = meta?.injectedInstructionSources
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null
+      const raw = entry as Record<string, unknown>
+      const path = typeof raw.path === 'string' && raw.path.trim() ? raw.path.trim() : ''
+      const scope = typeof raw.scope === 'string' && raw.scope.trim() ? raw.scope.trim() : ''
+      return path ? { path, scope } : null
+    })
+    .filter((entry): entry is { path: string; scope: string } => entry !== null)
+}
+
 function readMetaSources(meta: Record<string, unknown> | undefined): Array<{ title?: string; url?: string }> {
   const value = meta?.sources
   if (!Array.isArray(value)) return []
@@ -974,6 +1004,7 @@ function RuntimeMetaBadges({
   const attachmentIds = showTurnDisclosure ? readMetaStringArray(meta, 'attachmentIds') : []
   const activeSkillIds = showTurnDisclosure ? readMetaStringArray(meta, 'activeSkillIds') : []
   const injectedMemoryIds = showTurnDisclosure ? readMetaStringArray(meta, 'injectedMemoryIds') : []
+  const injectedInstructionSources = showTurnDisclosure ? readMetaInstructionSources(meta) : []
   const child = meta.child && typeof meta.child === 'object' ? meta.child as Record<string, unknown> : null
   const childLabel =
     typeof child?.childLabel === 'string' && child.childLabel.trim()
@@ -988,6 +1019,7 @@ function RuntimeMetaBadges({
     attachmentIds.length === 0 &&
     activeSkillIds.length === 0 &&
     injectedMemoryIds.length === 0 &&
+    injectedInstructionSources.length === 0 &&
     !childLabel
   ) {
     return null
@@ -1008,6 +1040,11 @@ function RuntimeMetaBadges({
       ) : null}
       {injectedMemoryIds.length > 0 ? (
         <InjectedMemoryMetaChip meta={meta} memoryIds={injectedMemoryIds} chipClass={chipClass} />
+      ) : null}
+      {injectedInstructionSources.length > 0 ? (
+        <span className={chipClass} title={injectedInstructionSources.map((source) => `${source.scope}: ${source.path}`).join('\n')}>
+          {t('toolInjectedInstructions')} {injectedInstructionSources.length}
+        </span>
       ) : null}
       {attachmentIds.length > 0 ? (
         <span className={chipClass} title={attachmentIds.join(', ')}>
@@ -1131,6 +1168,7 @@ function getProcessDetail(block: ChatBlock, summaryText?: string): ProcessDetail
   if (block.kind === 'approval') return { kind: 'approval' }
   if (block.kind === 'user_input') return { kind: 'user_input' }
   if (isBackgroundShellNoticeBlock(block)) return { kind: 'background_shell' }
+  if (isBackgroundSubagentNoticeBlock(block)) return { kind: 'background_subagent' }
   if (block.kind === 'system' && block.text.trim()) {
     if (block.detail?.trim()) return { kind: 'text', text: block.detail }
     // Short system messages already fit in the summary line — skip the
@@ -1201,7 +1239,7 @@ function ProcessEntryDetail({
   if (detail.kind === 'user_input' && block.kind === 'user_input') {
     return <MessageBubble block={block} nested />
   }
-  if (detail.kind === 'background_shell' && block.kind === 'user') {
+  if ((detail.kind === 'background_shell' || detail.kind === 'background_subagent') && block.kind === 'user') {
     return <MessageBubble block={block} nested />
   }
   return null
@@ -1222,6 +1260,9 @@ function describeProcessBlock(
   }
   if (block.kind === 'user' && isBackgroundShellNoticeBlock(block)) {
     return block.meta?.displayText?.trim() || t('backgroundShellNotice.title', { defaultValue: 'Background shell completed' })
+  }
+  if (block.kind === 'user' && isBackgroundSubagentNoticeBlock(block)) {
+    return block.meta?.displayText?.trim() || t('backgroundSubagentNotice.title', { defaultValue: 'Background subagent completed' })
   }
   if (block.kind === 'compaction') {
     if (block.status === 'running') return t('compactionRunning')

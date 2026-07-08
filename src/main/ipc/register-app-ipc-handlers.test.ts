@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import {
   mergeScheduleSettings,
   defaultClawSettings,
+  defaultDesignSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
@@ -15,6 +16,7 @@ import {
   type AppSettingsPatch,
   type AppSettingsV1
 } from '../../shared/app-settings'
+import { registerAppIpcHandlers } from './register-app-ipc-handlers'
 
 const handlers = new Map<string, (event: unknown, payload?: unknown) => Promise<unknown>>()
 
@@ -53,6 +55,7 @@ function settings(): AppSettingsV1 {
     claw: defaultClawSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
+    design: defaultDesignSettings(),
     terminal: defaultTerminalSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: '',
@@ -95,7 +98,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('rejects invalid settings patches at the handler boundary', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const applySettingsPatch = vi.fn(async () => settings())
 
     registerAppIpcHandlers(registerOptions({ applySettingsPatch }))
@@ -109,7 +111,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('passes valid settings patches through to applySettingsPatch', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const applySettingsPatch = vi.fn(async () => settings())
 
     registerAppIpcHandlers(registerOptions({ applySettingsPatch }))
@@ -128,7 +129,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('accepts checkpoint cleanup settings patches', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const applySettingsPatch = vi.fn(async () => settings())
 
     registerAppIpcHandlers(registerOptions({ applySettingsPatch }))
@@ -144,7 +144,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('rejects unsupported checkpoint cleanup intervals', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const applySettingsPatch = vi.fn(async () => settings())
 
     registerAppIpcHandlers(registerOptions({ applySettingsPatch }))
@@ -157,7 +156,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('accepts telegram phone connection settings patches', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const applySettingsPatch = vi.fn(async () => settings())
 
     registerAppIpcHandlers(registerOptions({ applySettingsPatch }))
@@ -202,7 +200,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('restarts the managed runtime through the restart IPC handler', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const restartRuntime = vi.fn(async () => undefined)
 
     registerAppIpcHandlers(registerOptions({ restartRuntime }))
@@ -213,7 +210,6 @@ describe('registerAppIpcHandlers', () => {
 
   it('saves generated files to a user-selected path', async () => {
     const { dialog } = await import('electron')
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const temp = mkdtempSync(join(tmpdir(), 'kun-save-as-'))
     const source = join(temp, 'source.png')
     const target = join(temp, 'downloaded.png')
@@ -239,7 +235,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('accepts the full settings snapshot emitted by SettingsView auto-apply', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const applySettingsPatch = vi.fn(async () => settings())
 
     registerAppIpcHandlers(registerOptions({ applySettingsPatch }))
@@ -251,7 +246,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('passes schedule settings patches through to applySettingsPatch', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const applySettingsPatch = vi.fn(async (partial: AppSettingsPatch) => ({
       ...settings(),
       schedule: mergeScheduleSettings(settings().schedule, partial.schedule)
@@ -284,7 +278,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('writes MCP config JSON and notifies the runtime apply hook', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const tempRoot = mkdtempSync(join(tmpdir(), 'deepseek-gui-ipc-'))
     const configPath = join(tempRoot, 'mcp.json')
     const onKunMcpConfigWritten = vi.fn(async () => undefined)
@@ -315,7 +308,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('rejects invalid MCP config JSON before writing or applying it', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const tempRoot = mkdtempSync(join(tmpdir(), 'deepseek-gui-ipc-'))
     const configPath = join(tempRoot, 'mcp.json')
     const onKunMcpConfigWritten = vi.fn(async () => undefined)
@@ -340,7 +332,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('uses the GUI-managed WeChat bridge for WeChat install handlers', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const configuredSettings = settings()
     configuredSettings.claw.im.weixinBridgeUrl = 'http://127.0.0.1:18787/rpc'
     const store = { load: vi.fn(async () => configuredSettings) }
@@ -368,7 +359,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('routes schedule task IPC calls to the Schedule runtime', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const scheduleRuntime = {
       status: vi.fn(async () => ({
         internalServerRunning: true,
@@ -421,7 +411,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('routes desktop command IPC calls to the focused window and web contents', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const webContents = {
       undo: vi.fn(),
       redo: vi.fn(),
@@ -461,7 +450,6 @@ describe('registerAppIpcHandlers', () => {
   })
 
   it('creates a unique conversation workspace, suffixing on timestamp collision', async () => {
-    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const root = mkdtempSync(join(tmpdir(), 'kun-conv-'))
     try {
       registerAppIpcHandlers(registerOptions({

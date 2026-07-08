@@ -14,6 +14,11 @@ import type {
   TextToSpeechProtocol,
   VideoGenerationProtocol
 } from './app-settings-types'
+import {
+  DEFAULT_MODEL_REQUEST_RETRY_HTTP_STATUS_CODES,
+  DEFAULT_MODEL_REQUEST_RETRY_INITIAL_DELAY_MS,
+  DEFAULT_MODEL_REQUEST_RETRY_MAX_ATTEMPTS
+} from './app-settings-types'
 
 export type ModelProviderPresetId =
   | 'litellm'
@@ -23,6 +28,8 @@ export type ModelProviderPresetId =
   | 'kimi-code'
   | 'volcengine-coding-plan'
   | 'opencode-go'
+  | 'codex'
+  | 'claude-subscription'
   | 'moonshot-cn'
   | 'moonshot-global'
   | 'xiaomi'
@@ -155,6 +162,12 @@ const GLM_REASONING: ModelProviderReasoningCapabilityV1 = {
   supportedEfforts: ['off', 'high', 'max'],
   defaultEffort: 'max',
   requestProtocol: 'glm-chat-completions'
+}
+
+const DEEPSEEK_REASONING: ModelProviderReasoningCapabilityV1 = {
+  supportedEfforts: ['off', 'high', 'max'],
+  defaultEffort: 'max',
+  requestProtocol: 'deepseek-chat-completions'
 }
 
 // 通义千问 / 混元 / 豆包的「思考」开关各家用私有 body 字段,无法用现有 requestProtocol 精确映射,
@@ -350,8 +363,8 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
       'kimi-k2.7': textChatProfile(131_072),
       'kimi-k2.7-code': textChatProfile(131_072),
       'kimi-k2.6': textChatProfile(131_072),
-      'deepseek-v4-pro': textChatProfile(131_072),
-      'deepseek-v4-flash': textChatProfile(131_072),
+      'deepseek-v4-pro': textChatProfile(1_000_000, DEEPSEEK_REASONING),
+      'deepseek-v4-flash': textChatProfile(1_000_000, DEEPSEEK_REASONING),
       'mimo-v2.5': textChatProfile(131_072),
       'mimo-v2.5-pro': textChatProfile(131_072),
       'mimo-v2-pro': textChatProfile(131_072),
@@ -407,14 +420,12 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
     baseUrl: 'https://api.xiaomimimo.com/v1',
     endpointFormat: 'chat_completions',
     models: [
-      'mimo-v2.5-pro-ultraspeed',
       'mimo-v2.5-pro',
       'mimo-v2.5',
       'mimo-v2-pro',
       'mimo-v2-omni'
     ],
     modelProfiles: {
-      'mimo-v2.5-pro-ultraspeed': xiaomiTextChatProfile(1_000_000),
       'mimo-v2.5-pro': xiaomiTextChatProfile(1_000_000),
       'mimo-v2.5': xiaomiVisionChatProfile(1_000_000),
       'mimo-v2-pro': xiaomiTextChatProfile(1_000_000),
@@ -439,14 +450,12 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
       ],
       endpointFormat: 'chat_completions',
       models: [
-        'mimo-v2.5-pro-ultraspeed',
         'mimo-v2.5-pro',
         'mimo-v2.5',
         'mimo-v2-pro',
         'mimo-v2-omni'
       ],
       modelProfiles: {
-        'mimo-v2.5-pro-ultraspeed': xiaomiTextChatProfile(1_000_000),
         'mimo-v2.5-pro': xiaomiTextChatProfile(1_000_000),
         'mimo-v2.5': xiaomiVisionChatProfile(1_000_000),
         'mimo-v2-pro': xiaomiTextChatProfile(1_000_000),
@@ -645,6 +654,32 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
     apiKeyUrl: 'https://console.cloud.tencent.com/hunyuan/start'
   },
   {
+    id: 'codex',
+    name: 'Codex (ChatGPT)',
+    category: 'subscription',
+    baseUrl: 'https://chatgpt.com/backend-api/codex/responses',
+    endpointFormat: 'custom_endpoint',
+    models: [
+      'gpt-5.5',
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.3-codex-spark'
+    ],
+    modelProfiles: {
+      'gpt-5.5': visionChatProfile(1_000_000),
+      'gpt-5.4': visionChatProfile(1_000_000),
+      'gpt-5.4-mini': visionChatProfile(1_000_000),
+      'gpt-5.3-codex-spark': textChatProfile(128_000)
+    },
+    image: {
+      protocol: 'codex-responses-image',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      models: ['gpt-image-2', 'gpt-image-1.5', 'gpt-image-1', 'gpt-image-1-mini']
+    },
+    docsUrl: 'https://openai.com/index/codex/',
+    apiKeyUrl: 'https://chatgpt.com'
+  },
+  {
     id: 'vercel-ai-gateway',
     name: 'Vercel AI Gateway',
     baseUrl: 'https://ai-gateway.vercel.sh/v1',
@@ -659,6 +694,14 @@ export function getModelProviderPreset(id: string): ModelProviderPreset | null {
   return MODEL_PROVIDER_PRESETS.find((preset) => preset.id === id) ?? null
 }
 
+function defaultPresetRetrySettings() {
+  return {
+    maxAttempts: DEFAULT_MODEL_REQUEST_RETRY_MAX_ATTEMPTS,
+    initialDelayMs: DEFAULT_MODEL_REQUEST_RETRY_INITIAL_DELAY_MS,
+    httpStatusCodes: [...DEFAULT_MODEL_REQUEST_RETRY_HTTP_STATUS_CODES]
+  }
+}
+
 export function modelProviderPresetProfile(
   preset: ModelProviderPreset,
   apiKey = ''
@@ -669,6 +712,7 @@ export function modelProviderPresetProfile(
     apiKey: apiKey.trim(),
     baseUrl: preset.baseUrl,
     endpointFormat: preset.endpointFormat,
+    retry: defaultPresetRetrySettings(),
     ...(preset.kind ? { kind: preset.kind } : {}),
     models: [...preset.models],
     modelProfiles: copyModelProfiles(preset.modelProfiles),
@@ -700,6 +744,7 @@ export function modelProviderTokenPlanProfile(
     apiKey: apiKey.trim(),
     baseUrl: resolvedBaseUrl,
     endpointFormat: tokenPlan.endpointFormat,
+    retry: defaultPresetRetrySettings(),
     models: [...tokenPlan.models],
     modelProfiles: copyModelProfiles(tokenPlan.modelProfiles),
     ...(tokenPlan.image

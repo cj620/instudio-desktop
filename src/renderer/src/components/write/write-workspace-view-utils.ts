@@ -3,7 +3,6 @@ import type { WriteExportFormat } from '@shared/write-export'
 import type { WritePreviewMode, WriteSaveStatus } from '../../write/write-workspace-store'
 import { parseWriteMarkdown } from '../../write/tiptap/markdown-manager'
 
-export const WRITE_AUTOSAVE_MS = 900
 export const WRITE_PREVIEW_DEBOUNCE_MS = 60
 
 /**
@@ -22,7 +21,7 @@ export const INLINE_AGENT_MAX_WIDTH = 340
 export const INLINE_AGENT_GAP = 8
 export const WRITE_EXPORT_NOTICE_MS = 3_600
 export const INLINE_EDIT_RECENT_CONTEXT_CHARS = 180
-export const WRITE_EXPORT_FORMATS: WriteExportFormat[] = ['html', 'pdf', 'doc', 'docx']
+export const WRITE_EXPORT_FORMATS: WriteExportFormat[] = ['html', 'pdf', 'png', 'doc', 'docx']
 export const WRITE_RICH_CLIPBOARD_ACTION = 'clipboard'
 
 export type WriteNotice = {
@@ -150,6 +149,7 @@ export function toolbarMenuButtonClass(active = false): string {
 export function exportFormatLabel(format: WriteExportFormat, t: (key: string) => string): string {
   if (format === 'html') return t('writeExportHtml')
   if (format === 'pdf') return t('writeExportPdf')
+  if (format === 'png') return t('writeExportPng')
   if (format === 'doc') return t('writeExportDoc')
   return t('writeExportDocx')
 }

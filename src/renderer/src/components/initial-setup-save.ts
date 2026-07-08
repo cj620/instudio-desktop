@@ -11,12 +11,14 @@ import {
   modelProviderTokenPlanProfile,
   normalizeAppSettings,
   tokenPlanProviderId,
+  type AppSettingsPatch,
   type AppSettingsV1,
   type KunToolPermissionMode,
   type KunRuntimeSettingsPatchV1,
   type ModelProviderPreset,
   type ModelProviderProfileV1
 } from '@shared/app-settings'
+import { diffSettingsPatch } from './settings-utils'
 
 export type InitialSetupAccessMode = 'api' | 'token-plan'
 
@@ -178,7 +180,7 @@ export function buildInitialSetupSettings(
   const switchingProvider = (runtime.providerId.trim() || DEFAULT_MODEL_PROVIDER_ID) !== selectedId
   const wire = initialSetupAutoWirePlan(settings, drafts)
   // Only rewrite approvalPolicy/sandboxMode when the user actually moved the
-  // permission selector. The mode<->settings mapping is lossy (only 5 of the
+  // permission selector. The mode<->settings mapping is lossy (only 6 of the
   // policy/sandbox combos are representable), so emitting the pair when the
   // selection still matches the persisted policy would silently weaken values
   // the UI cannot represent — e.g. demote approvalPolicy 'never'/'suggest' or
@@ -203,6 +205,14 @@ export function buildInitialSetupSettings(
       : {})
   }
   return applyKunRuntimePatch(next, kunPatch)
+}
+
+export function buildInitialSetupSettingsPatch(
+  settings: AppSettingsV1,
+  drafts: InitialSetupDrafts,
+  selection: Pick<InitialSetupSelection, 'presetId' | 'mode'> & Partial<Pick<InitialSetupSelection, 'permissionMode'>>
+): AppSettingsPatch {
+  return diffSettingsPatch(settings, buildInitialSetupSettings(settings, drafts, selection))
 }
 
 function upsertPresetProfile(

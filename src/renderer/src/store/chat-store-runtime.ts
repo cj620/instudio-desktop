@@ -1,4 +1,5 @@
 import type {
+  AgentProvider,
   ChatBlock,
   CompactionBlock,
   NormalizedThread,
@@ -14,11 +15,16 @@ import { getProvider } from '../agent/registry'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import i18n from '../i18n'
 import { describeRuntimeError, formatRuntimeError, getRuntimeErrorCode } from '../lib/format-runtime-error'
-import { isClawWorkspacePath, isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
+import {
+  isClawWorkspacePath,
+  isInternalDeepSeekGuiWorkspace,
+  isInternalTemporaryWorkspace,
+  normalizeWorkspaceRoot
+} from '../lib/workspace-path'
 import type { ClawImChannelV1 } from '@shared/app-settings'
 import { isBackgroundShellNoticeUserMessage } from '@shared/background-shell-notice'
 import type { ChatState } from './chat-store-types'
-import { isClawThread } from './chat-store-helpers'
+import { hydrateBlockModelLabels, isClawThread } from './chat-store-helpers'
 import {
   collectAssistantTextForTurn,
   isOptimisticUserBlockId,
@@ -28,12 +34,14 @@ import {
   upsertUserBlock
 } from './chat-store-runtime-helpers'
 import {
-  isWriteThreadId,
+  isWriteAssistantThread,
   type WriteThreadRegistry
 } from '../write/write-thread-registry'
 import { isSddAssistantThread } from '../sdd/sdd-thread-registry'
+import { isDesignThreadId, type DesignThreadRegistry } from '../design/design-thread-registry'
 import { readThreadWorktreeRegistry, saveThreadWorktreeRegistry, forgetThreadWorktree } from '../lib/thread-worktree-registry'
 import { notifySddChatTranscriptMirror } from '../sdd/sdd-chat-transcript'
+import { notifyDesignChatTranscriptMirror } from '../design/design-chat-transcript'
 import { useWriteWorkspaceStore } from '../write/write-workspace-store'
 import {
   armBusyWatchdog as armBusyWatchdogImpl,
@@ -54,6 +62,7 @@ export const MAX_PENDING_CLAW_FEISHU_MIRRORS = 50
 const completionNotificationKeys: string[] = []
 const completionNotificationKeySet = new Set<string>()
 const watchCompletionNotificationKeys = new Map<string, string>()
+const pendingChildToolUpdates = new Map<string, ToolEventPayload>()
 
 export type PendingClawFeishuMirror = {
   threadId: string
@@ -258,7 +267,13 @@ export function clearWatchedCompletionNotification(threadId: string): void {
 }
 
 function notifyTurnComplete(threadId: string | null, state: ChatState, dedupeKey: string): void {
-  if (!threadId || typeof window.kunGui?.showTurnCompleteNotification !== 'function') return
+  if (
+    !threadId ||
+    typeof window === 'undefined' ||
+    typeof window.kunGui?.showTurnCompleteNotification !== 'function'
+  ) {
+    return
+  }
   if (!rememberCompletionNotificationKey(dedupeKey)) return
 
   const threadTitle =
@@ -389,16 +404,27 @@ export function looksLikeActiveTurnError(error: unknown): boolean {
 export function isCodeThread(
   thread: NormalizedThread,
   clawChannels: ClawImChannelV1[] = [],
-  writeRegistry?: WriteThreadRegistry
+  writeRegistry?: WriteThreadRegistry,
+  designRegistry?: DesignThreadRegistry
+): boolean {
+  return thread.archived !== true && isCodeSidebarThread(thread, clawChannels, writeRegistry, designRegistry)
+}
+
+export function isCodeSidebarThread(
+  thread: NormalizedThread,
+  clawChannels: ClawImChannelV1[] = [],
+  writeRegistry?: WriteThreadRegistry,
+  designRegistry?: DesignThreadRegistry
 ): boolean {
   const workspace = normalizeWorkspaceRoot(thread.workspace)
   return Boolean(workspace) &&
-    thread.archived !== true &&
     !isInternalTemporaryWorkspace(thread.workspace) &&
+    !isInternalDeepSeekGuiWorkspace(thread.workspace) &&
     !isClawWorkspacePath(thread.workspace) &&
     !isClawThread(thread, clawChannels) &&
-    !isWriteThreadId(thread.id, writeRegistry) &&
-    !isSddAssistantThread(thread)
+    !isWriteAssistantThread(thread, writeRegistry) &&
+    !isSddAssistantThread(thread) &&
+    !isDesignThreadId(thread.id, designRegistry)
 }
 
 export function latestThread(threads: NormalizedThread[]): NormalizedThread | null {
@@ -454,19 +480,27 @@ function runtimeStatusText(event: RuntimeStatusEventPayload): string {
   if (event.kind === 'tool_result_upload_wait') {
     return i18n.t('common:toolUploadWaitStatus', { count: event.toolResultCount ?? 0 })
   }
-	  if (event.kind === 'tool_catalog_changed') {
-	    return event.message?.trim() || i18n.t('common:toolCatalogChangedStatus')
-	  }
-	  if (event.kind === 'tool_storm_suppressed') {
-	    return event.message?.trim() || i18n.t('common:toolStormSuppressedStatus', {
-	      tool: event.toolName ?? 'tool'
-	    })
-	  }
+  if (event.kind === 'model_request_retry') {
+    return i18n.t('common:modelRequestRetryStatus', {
+      status: event.status ?? '',
+      attempt: event.attempt ?? 0,
+      max: event.maxAttempts ?? 0,
+      seconds: Math.ceil((event.delayMs ?? 0) / 1000)
+    })
+  }
+  if (event.kind === 'tool_catalog_changed') {
+    return event.message?.trim() || i18n.t('common:toolCatalogChangedStatus')
+  }
+  if (event.kind === 'tool_storm_suppressed') {
+    return event.message?.trim() || i18n.t('common:toolStormSuppressedStatus', {
+      tool: event.toolName ?? 'tool'
+    })
+  }
   if (event.kind === 'compaction_summary_fallback') {
     return event.message?.trim() || i18n.t('common:compactionSummaryFallbackStatus')
   }
-	  return event.message?.trim() || ''
-	}
+  return event.message?.trim() || ''
+}
 
 function runtimeErrorPayloadToError(event: {
   message: string
@@ -526,6 +560,77 @@ function upsertRuntimeErrorBlock(blocks: ChatBlock[], block: Extract<ChatBlock, 
   const next = [...blocks]
   next[index] = block
   return next
+}
+
+function childIdFromToolBlock(block: ToolBlock): string | undefined {
+  const child = block.meta?.child
+  if (child && typeof child === 'object') {
+    const id = (child as Record<string, unknown>).childId
+    if (typeof id === 'string' && id.trim()) return id.trim()
+  }
+  if (!block.detail?.trim()) return undefined
+  try {
+    const parsed = JSON.parse(block.detail) as unknown
+    if (!parsed || typeof parsed !== 'object') return undefined
+    const id = (parsed as Record<string, unknown>).childId
+    return typeof id === 'string' && id.trim() ? id.trim() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function childIdFromToolEvent(event: ToolEventPayload): string | undefined {
+  const child = event.meta?.child
+  if (child && typeof child === 'object') {
+    const id = (child as Record<string, unknown>).childId
+    if (typeof id === 'string' && id.trim()) return id.trim()
+  }
+  if (!event.detail?.trim()) return undefined
+  try {
+    const parsed = JSON.parse(event.detail) as unknown
+    if (!parsed || typeof parsed !== 'object') return undefined
+    const id = (parsed as Record<string, unknown>).childId
+    return typeof id === 'string' && id.trim() ? id.trim() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function eventDetailRecord(event: ToolEventPayload): Record<string, unknown> | undefined {
+  if (!event.detail?.trim()) return undefined
+  try {
+    const parsed = JSON.parse(event.detail) as unknown
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function isDetachedSubagentToolEvent(event: ToolEventPayload): boolean {
+  const child = event.meta?.child
+  if (child && typeof child === 'object' && (child as Record<string, unknown>).detached === true) {
+    return true
+  }
+  return eventDetailRecord(event)?.detached === true
+}
+
+function mergeToolMeta(current: ToolBlock['meta'], incoming: ToolEventPayload['meta']): ToolBlock['meta'] {
+  if (!incoming) return current
+  if (!current) return incoming
+  const currentChild = current.child
+  const incomingChild = incoming.child
+  return {
+    ...current,
+    ...incoming,
+    ...(currentChild || incomingChild
+      ? {
+          child: {
+            ...(currentChild && typeof currentChild === 'object' ? currentChild : {}),
+            ...(incomingChild && typeof incomingChild === 'object' ? incomingChild : {})
+          }
+        }
+      : {})
+  }
 }
 
 export function armBusyWatchdog(
@@ -594,6 +699,85 @@ export type ThreadEventSinkBinding = {
    * live bubble.
    */
   sinceSeq?: number
+  getThreadDetail?: AgentProvider['getThreadDetail']
+}
+
+function assistantTextAfterUser(blocks: ChatBlock[], userBlockId: string): string {
+  const userIndex = blocks.findIndex((block) => block.kind === 'user' && block.id === userBlockId)
+  if (userIndex < 0) return ''
+  const parts: string[] = []
+  for (let index = userIndex + 1; index < blocks.length; index += 1) {
+    const block = blocks[index]
+    if (block.kind === 'user') break
+    if (block.kind === 'assistant' && block.text.trim()) parts.push(block.text.trim())
+  }
+  return parts.join('\n\n').trim()
+}
+
+function hasAssistantTextForCompletedTurn(
+  state: Pick<ChatState, 'blocks' | 'liveAssistant'>,
+  turnId: string | null | undefined,
+  userBlockId: string | null | undefined
+): boolean {
+  if (state.liveAssistant.trim()) return true
+  const normalizedTurnId = turnId?.trim()
+  if (normalizedTurnId) {
+    return state.blocks.some(
+      (block) => block.kind === 'assistant' && block.turnId === normalizedTurnId && block.text.trim()
+    )
+  }
+  const normalizedUserBlockId = userBlockId?.trim()
+  return normalizedUserBlockId ? !!assistantTextAfterUser(state.blocks, normalizedUserBlockId) : false
+}
+
+async function reconcileCompletedTurnFromThreadDetail(input: {
+  threadId: string | null | undefined
+  turnId: string | null | undefined
+  userBlockId: string | null | undefined
+  loadThreadDetail: AgentProvider['getThreadDetail']
+  set: (partial: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => void
+  get: () => ChatState
+}): Promise<void> {
+  const threadId = input.threadId?.trim()
+  if (!threadId) return
+  if (hasAssistantTextForCompletedTurn(input.get(), input.turnId, input.userBlockId)) return
+
+  try {
+    const detail = await input.loadThreadDetail(threadId)
+    const loaded = hydrateBlockModelLabels(threadId, detail.blocks)
+    const hasPersistedCompletion =
+      hasAssistantTextForCompletedTurn(
+        { blocks: loaded, liveAssistant: '' } as Pick<ChatState, 'blocks' | 'liveAssistant'>,
+        input.turnId,
+        input.userBlockId
+      ) || detail.latestSeq > input.get().lastSeq
+    if (!hasPersistedCompletion) return
+
+    input.set((state) => {
+      if (state.activeThreadId !== threadId) return {}
+      if (state.busy) return {}
+      if (state.currentTurnId && state.currentTurnId !== input.turnId) return {}
+      if (hasAssistantTextForCompletedTurn(state, input.turnId, input.userBlockId)) return {}
+
+      const busy = threadSnapshotLooksRunning(loaded, detail.threadStatus)
+      const blocks = busy ? loaded : settlePendingRuntimeWorkAfterInterrupt(loaded)
+      return {
+        blocks,
+        lastSeq: Math.max(state.lastSeq, detail.latestSeq),
+        liveReasoning: '',
+        liveAssistant: '',
+        activeThreadGoal: detail.goal ?? state.activeThreadGoal,
+        activeThreadTodos: detail.todos ?? state.activeThreadTodos,
+        error: clearRuntimeStreamRecoveringError(state.error)
+      }
+    })
+  } catch (error) {
+    if (typeof window === 'undefined') return
+    void window.kunGui?.logError?.('turn-completion-reconcile', 'Failed to reconcile completed turn', {
+      message: error instanceof Error ? error.message : String(error),
+      threadId
+    }).catch(() => undefined)
+  }
 }
 
 export function buildThreadEventSink(
@@ -603,6 +787,7 @@ export function buildThreadEventSink(
 ): ThreadEventSink {
   const boundThreadId = binding.threadId?.trim() ?? ''
   let appliedDeltaSeqFloor = binding.sinceSeq ?? 0
+  const loadThreadDetail = binding.getThreadDetail ?? ((threadId: string) => getProvider().getThreadDetail(threadId))
   const isCurrentStream = (): boolean => {
     if (binding.signal?.aborted) return false
     return !boundThreadId || get().activeThreadId === boundThreadId
@@ -709,11 +894,21 @@ export function buildThreadEventSink(
         }
         let liveReasoning = s.liveReasoning
         let liveAssistant = s.liveAssistant
+        // Shared, cross-sink replay guard — see ChatState.liveDeltaSeqFloor.
+        // The per-sink `appliedDeltaSeqFloor` above only dedups within one
+        // subscription; while a flaky long turn briefly has more than one sink
+        // live, each independently re-applies the same replayed deltas. Gating
+        // on the store floor serializes them so each seq folds in just once.
+        let liveDeltaSeqFloor = s.liveDeltaSeqFloor
         let nextReasoningFirstAtByUserId = s.turnReasoningFirstAtByUserId
         let nextReasoningLastAtByUserId = s.turnReasoningLastAtByUserId
         const userId = s.currentTurnUserId
         let sawReasoning = false
         for (const delta of deltas) {
+          if (typeof delta.seq === 'number') {
+            if (delta.seq <= liveDeltaSeqFloor) continue
+            liveDeltaSeqFloor = delta.seq
+          }
           if (delta.kind === 'agent_reasoning') {
             liveReasoning += delta.text
             sawReasoning = true
@@ -733,6 +928,7 @@ export function buildThreadEventSink(
           ...base,
           ...(liveReasoning !== s.liveReasoning ? { liveReasoning } : {}),
           ...(liveAssistant !== s.liveAssistant ? { liveAssistant } : {}),
+          ...(liveDeltaSeqFloor !== s.liveDeltaSeqFloor ? { liveDeltaSeqFloor } : {}),
           ...(nextReasoningFirstAtByUserId !== s.turnReasoningFirstAtByUserId
             ? { turnReasoningFirstAtByUserId: nextReasoningFirstAtByUserId }
             : {}),
@@ -749,11 +945,16 @@ export function buildThreadEventSink(
         resetBusyRecoveryAttempts()
         // Restore busy state on tool events (same reasoning as onDelta).
         const base: Partial<ChatState> = {}
-        if (!s.busy) {
+        if (!s.busy && !ev.updateOnly && !isDetachedSubagentToolEvent(ev)) {
           base.busy = true
           armBusyWatchdog(set, get)
         }
-        const idx = s.blocks.findIndex((b) => b.kind === 'tool' && b.id === ev.itemId)
+        const eventChildId = childIdFromToolEvent(ev)
+        const idx = s.blocks.findIndex((b) => {
+          if (b.kind !== 'tool') return false
+          if (b.id === ev.itemId) return true
+          return Boolean(eventChildId && childIdFromToolBlock(b) === eventChildId)
+        })
         if (idx >= 0) {
           const cur = s.blocks[idx]
           if (cur.kind !== 'tool') return { ...base }
@@ -764,7 +965,7 @@ export function buildThreadEventSink(
             toolKind: ev.toolKind ?? cur.toolKind,
             detail: ev.detail ?? cur.detail,
             filePath: ev.filePath ?? cur.filePath,
-            meta: ev.meta ?? cur.meta
+            meta: mergeToolMeta(cur.meta, ev.meta)
           }
           const blocks = [...s.blocks]
           blocks[idx] = next
@@ -774,6 +975,10 @@ export function buildThreadEventSink(
             error: clearRuntimeStreamRecoveringError(s.error)
           }
         }
+        if (ev.updateOnly) {
+          if (eventChildId) pendingChildToolUpdates.set(eventChildId, ev)
+          return { ...base }
+        }
         // New tool — flush pending live reasoning/assistant first so each
         // reasoning segment becomes its own timeline block in chronological
         // order, rather than collapsing into one giant trailing block.
@@ -782,7 +987,7 @@ export function buildThreadEventSink(
         const block: ToolBlock = {
           kind: 'tool',
           id: ev.itemId,
-          createdAt: new Date().toISOString(),
+          createdAt: ev.createdAt ?? new Date().toISOString(),
           summary: ev.summary,
           status: ev.status,
           toolKind: ev.toolKind,
@@ -790,10 +995,24 @@ export function buildThreadEventSink(
           filePath: ev.filePath,
           meta: ev.meta
         }
+        const blockChildId = childIdFromToolBlock(block)
+        const pendingChildUpdate = blockChildId ? pendingChildToolUpdates.get(blockChildId) : undefined
+        if (blockChildId && pendingChildUpdate) pendingChildToolUpdates.delete(blockChildId)
+        const mergedBlock: ToolBlock = pendingChildUpdate
+          ? {
+              ...block,
+              summary: pendingChildUpdate.summary || block.summary,
+              status: pendingChildUpdate.status,
+              toolKind: pendingChildUpdate.toolKind ?? block.toolKind,
+              detail: pendingChildUpdate.detail ?? block.detail,
+              filePath: pendingChildUpdate.filePath ?? block.filePath,
+              meta: mergeToolMeta(block.meta, pendingChildUpdate.meta)
+            }
+          : block
         return {
           ...base,
           ...flushed,
-          blocks: [...baseBlocks, block],
+          blocks: [...baseBlocks, mergedBlock],
           error: clearRuntimeStreamRecoveringError(s.error)
         }
       })
@@ -1139,6 +1358,12 @@ export function buildThreadEventSink(
       const completedState = get()
       const completedThreadId = completedState.activeThreadId
       const completedTurnId = completedState.currentTurnId
+      const completedUserBlockId = completedState.currentTurnUserId
+      const shouldReconcileCompletion = !hasAssistantTextForCompletedTurn(
+        completedState,
+        completedTurnId,
+        completedUserBlockId
+      )
       const completedKey = completedState.currentTurnId
         ? `turn:${completedState.currentTurnId}`
         : `active:${completedThreadId ?? 'unknown'}:${completedState.lastSeq}`
@@ -1180,7 +1405,18 @@ export function buildThreadEventSink(
       notifyTurnComplete(completedThreadId, completedState, completedKey)
       notifyWriteWorkspaceFileRefresh(get)
       notifySddChatTranscriptMirror(get)
+      notifyDesignChatTranscriptMirror(get)
       syncTurnCompletionPoll(set, get)
+      if (shouldReconcileCompletion) {
+        void reconcileCompletedTurnFromThreadDetail({
+          threadId: completedThreadId,
+          turnId: completedTurnId,
+          userBlockId: completedUserBlockId,
+          loadThreadDetail,
+          set,
+          get
+        })
+      }
       void get().refreshThreads()
       // Release worktree when the turn finishes and there are no queued
       // follow-ups that would start a new turn in the same thread.

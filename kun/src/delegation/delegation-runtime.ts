@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { SubagentToolPolicy, type SubagentMode, type SubagentProfileConfig, type SubagentsCapabilityConfig } from '../contracts/capabilities.js'
 import type { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
 import type { UsageSnapshot } from '../contracts/usage.js'
+import type { ThreadStore } from '../ports/thread-store.js'
+import type { TurnService } from '../services/turn-service.js'
 import { loadWorkspaceAgentProfiles } from './workspace-agents.js'
 
 const ChildRunUsage = z.object({
@@ -24,6 +26,9 @@ const ChildRunUsage = z.object({
   tokenEconomySavingsCny: z.number().nonnegative().optional()
 })
 
+const ChildReturnFormat = z.enum(['summary', 'evidence'])
+export type ChildReturnFormat = z.infer<typeof ChildReturnFormat>
+
 export const ChildRunRecord = z.object({
   id: z.string().min(1),
   parentThreadId: z.string().min(1),
@@ -38,8 +43,15 @@ export const ChildRunRecord = z.object({
   profile: z.string().optional(),
   /** Effective tool policy applied to the child (read-only vs inherited). */
   toolPolicy: SubagentToolPolicy.optional(),
+  /** True when this child is detached from the parent turn lifecycle. */
+  detached: z.boolean().optional(),
   status: z.enum(['queued', 'running', 'completed', 'failed', 'aborted']),
   summary: z.string().optional(),
+  evidence: z.array(z.string().min(1).max(2_000)).max(32).optional(),
+  tokenBudget: z.number().int().positive().optional(),
+  timeBudgetMs: z.number().int().positive().optional(),
+  returnFormat: ChildReturnFormat.default('summary'),
+  budgetExceeded: z.enum(['token', 'time']).optional(),
   error: z.string().optional(),
   usage: ChildRunUsage.default({ promptTokens: 0, completionTokens: 0, totalTokens: 0 }),
   /** True when the child reused the main agent's cached stable prefix. */
@@ -52,6 +64,8 @@ export const ChildRunRecord = z.object({
   durationMs: z.number().int().nonnegative().optional(),
   /** Wall-clock spent waiting for a parallel slot before starting. */
   queuedMs: z.number().int().nonnegative().optional(),
+  /** Stable display order for this child inside its parent turn. */
+  childSeq: z.number().int().nonnegative().optional(),
   createdAt: z.string(),
   /** When the child left the queue and began running. */
   startedAt: z.string().optional(),
@@ -80,8 +94,13 @@ export type ChildRunExecutor = (input: {
   blockedSkills?: string[]
   toolPolicy: SubagentToolPolicy
   promptPreamble?: string
+  /** True when the parent turn is a GUI design-canvas turn. */
+  guiDesignCanvas?: boolean
   /** Reasoning depth for this profile's child model requests (default 'off'). */
   reasoningEffort?: string
+  tokenBudget?: number
+  timeBudgetMs?: number
+  returnFormat?: ChildReturnFormat
   signal: AbortSignal
 }) => Promise<{
   summary: string
@@ -89,6 +108,7 @@ export type ChildRunExecutor = (input: {
   toolInvocations?: number
   prefixReused?: boolean
   inheritedHistoryItems?: number
+  evidence?: string[]
 }>
 
 export type ChildRunAggregate = {
@@ -139,9 +159,12 @@ type SlotWaiter = {
   onAbort: () => void
 }
 
+type RunTurnFn = (threadId: string, turnId: string) => Promise<unknown>
+
 export class DelegationRuntime {
   private active = 0
   private childSeq = 0
+  private readonly childSeqById = new Map<string, number>()
   /** Children waiting for a parallel slot, in FIFO order. */
   private readonly slotWaiters: SlotWaiter[] = []
   /** Per-thread child counts (persisted + in-flight) for the budget cap. */
@@ -154,16 +177,34 @@ export class DelegationRuntime {
    * GUI even after the parent turn finished.
    */
   private readonly detachedAborts = new Map<string, AbortController>()
+  private runTurn: RunTurnFn | null = null
 
-  constructor(private readonly options: {
+  constructor(private options: {
     config: SubagentsCapabilityConfig
     store: FileDelegationStore
     events?: RuntimeEventRecorder
+    threadStore?: ThreadStore
+    turns?: TurnService
     nowIso?: () => string
     idGenerator?: () => string
     executor?: ChildRunExecutor
     recordExternalUsage?: (threadId: string, usage: UsageSnapshot) => void
   }) {}
+
+  bindAgentLoop(input: { runTurn: RunTurnFn }): void {
+    this.runTurn = input.runTurn
+  }
+
+  replaceConfig(config: SubagentsCapabilityConfig): void {
+    this.options = {
+      ...this.options,
+      config
+    }
+  }
+
+  enabled(): boolean {
+    return this.options.config.enabled
+  }
 
   async runChild(input: {
     parentThreadId: string
@@ -173,7 +214,14 @@ export class DelegationRuntime {
     workspace?: string
     model?: string
     providerId?: string
+    /** Parent turn/thread provider id inherited by delegate_task when no profile overrides it. */
+    inheritedProviderId?: string
     profile?: string
+    /** Forward GUI design-canvas scope into the child turn when present. */
+    guiDesignCanvas?: boolean
+    tokenBudget?: number
+    timeBudgetMs?: number
+    returnFormat?: ChildReturnFormat
     /**
      * When true, runChild returns the queued ChildRunRecord immediately and
      * continues execution in the background. The detached run gets its own
@@ -211,7 +259,7 @@ export class DelegationRuntime {
     }
     const toolPolicy = profile?.toolPolicy ?? config.defaultToolPolicy
     const resolvedModel = input.model?.trim() || profile?.model
-    const resolvedProviderId = input.providerId?.trim() || profile?.providerId
+    const resolvedProviderId = input.providerId?.trim() || profile?.providerId || input.inheritedProviderId?.trim()
     const resolvedSystemPrompt = profile?.systemPrompt
     const resolvedAllowedTools = profile?.allowedTools
     const resolvedBlockedTools = profile?.blockedTools
@@ -219,6 +267,9 @@ export class DelegationRuntime {
     const resolvedBlockedSkills = profile?.blockedSkills
     const promptPreamble = profile?.promptPreamble
     const resolvedReasoningEffort = profile?.reasoningEffort
+    const tokenBudget = positiveInteger(input.tokenBudget)
+    const timeBudgetMs = positiveInteger(input.timeBudgetMs)
+    const returnFormat = input.returnFormat ?? 'summary'
 
     // Reserve against the per-thread budget before persisting anything.
     await this.ensureSeeded(input.parentThreadId)
@@ -239,7 +290,12 @@ export class DelegationRuntime {
       providerId: resolvedProviderId,
       profile: profileName,
       toolPolicy,
+      tokenBudget,
+      timeBudgetMs,
+      returnFormat,
+      ...(input.detach ? { detached: true } : {}),
       status: 'queued',
+      childSeq: this.nextChildSeq(id),
       createdAt: queuedAt,
       updatedAt: queuedAt
     })
@@ -270,14 +326,21 @@ export class DelegationRuntime {
         resolvedBlockedMcpServers,
         resolvedBlockedSkills,
         promptPreamble,
+        guiDesignCanvas: input.guiDesignCanvas === true,
         resolvedReasoningEffort,
+        tokenBudget,
+        timeBudgetMs,
+        returnFormat,
         workspace: input.workspace,
         label: input.label,
         parentThreadId: input.parentThreadId,
         parentTurnId: input.parentTurnId,
         prompt: input.prompt,
         signal: detachedController.signal
-      }).finally(() => this.detachedAborts.delete(record.id))
+      })
+        .then((settled) => this.notifyDetachedChild(settled))
+        .catch(() => undefined)
+        .finally(() => this.detachedAborts.delete(record.id))
       return record
     }
 
@@ -303,7 +366,7 @@ export class DelegationRuntime {
     await this.recordChildEvent(record)
     try {
       const executor: ChildRunExecutor = this.options.executor ?? defaultExecutor
-      const result = await executor({
+      const result = await executeWithinTimeBudget(input.signal, timeBudgetMs, (signal) => executor({
         childId: id,
         parentThreadId: input.parentThreadId,
         parentTurnId: input.parentTurnId,
@@ -320,18 +383,33 @@ export class DelegationRuntime {
         ...(resolvedBlockedSkills ? { blockedSkills: resolvedBlockedSkills } : {}),
         toolPolicy,
         ...(promptPreamble ? { promptPreamble } : {}),
+        ...(input.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
         ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
-        signal: input.signal
-      })
+        ...(tokenBudget ? { tokenBudget } : {}),
+        ...(timeBudgetMs ? { timeBudgetMs } : {}),
+        returnFormat,
+        signal
+      }))
       const finishedAt = this.now()
+      const usage = result.usage ?? record.usage
+      const contractError = childContractError({ tokenBudget, returnFormat }, result.evidence, usage)
       record = ChildRunRecord.parse({
         ...record,
-        status: 'completed',
+        status: contractError ? 'failed' : 'completed',
         summary: result.summary,
-        usage: result.usage ?? record.usage,
+        evidence: result.evidence,
+        usage,
         toolInvocations: result.toolInvocations,
         prefixReused: result.prefixReused,
         inheritedHistoryItems: result.inheritedHistoryItems,
+        ...(contractError
+          ? {
+              error: contractError,
+              ...(usage.totalTokens > (tokenBudget ?? Number.POSITIVE_INFINITY)
+                ? { budgetExceeded: 'token' as const }
+                : {})
+            }
+          : {}),
         durationMs: elapsedMs(startedAt, finishedAt),
         updatedAt: finishedAt
       })
@@ -345,6 +423,7 @@ export class DelegationRuntime {
         ...record,
         status: input.signal.aborted ? 'aborted' : 'failed',
         error: errorMessage(error),
+        ...(error instanceof ChildTimeBudgetExceededError ? { budgetExceeded: 'time' } : {}),
         durationMs: elapsedMs(startedAt, finishedAt),
         updatedAt: finishedAt
       })
@@ -376,7 +455,11 @@ export class DelegationRuntime {
     resolvedBlockedMcpServers: string[] | undefined
     resolvedBlockedSkills: string[] | undefined
     promptPreamble: string | undefined
+    guiDesignCanvas: boolean
     resolvedReasoningEffort: string | undefined
+    tokenBudget: number | undefined
+    timeBudgetMs: number | undefined
+    returnFormat: ChildReturnFormat
     workspace: string | undefined
     label: string | undefined
     parentThreadId: string
@@ -406,7 +489,7 @@ export class DelegationRuntime {
     await this.recordChildEvent(record)
     try {
       const executor: ChildRunExecutor = this.options.executor ?? defaultExecutor
-      const result = await executor({
+      const result = await executeWithinTimeBudget(args.signal, args.timeBudgetMs, (signal) => executor({
         childId: record.id,
         parentThreadId: args.parentThreadId,
         parentTurnId: args.parentTurnId,
@@ -423,18 +506,37 @@ export class DelegationRuntime {
         ...(args.resolvedBlockedSkills ? { blockedSkills: args.resolvedBlockedSkills } : {}),
         toolPolicy: args.toolPolicy,
         ...(args.promptPreamble ? { promptPreamble: args.promptPreamble } : {}),
+        ...(args.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
         ...(args.resolvedReasoningEffort ? { reasoningEffort: args.resolvedReasoningEffort } : {}),
-        signal: args.signal
-      })
+        ...(args.tokenBudget ? { tokenBudget: args.tokenBudget } : {}),
+        ...(args.timeBudgetMs ? { timeBudgetMs: args.timeBudgetMs } : {}),
+        returnFormat: args.returnFormat,
+        signal
+      }))
       const finishedAt = this.now()
+      const usage = result.usage ?? record.usage
+      const contractError = childContractError(
+        { tokenBudget: args.tokenBudget, returnFormat: args.returnFormat },
+        result.evidence,
+        usage
+      )
       record = ChildRunRecord.parse({
         ...record,
-        status: 'completed',
+        status: contractError ? 'failed' : 'completed',
         summary: result.summary,
-        usage: result.usage ?? record.usage,
+        evidence: result.evidence,
+        usage,
         toolInvocations: result.toolInvocations,
         prefixReused: result.prefixReused,
         inheritedHistoryItems: result.inheritedHistoryItems,
+        ...(contractError
+          ? {
+              error: contractError,
+              ...(usage.totalTokens > (args.tokenBudget ?? Number.POSITIVE_INFINITY)
+                ? { budgetExceeded: 'token' as const }
+                : {})
+            }
+          : {}),
         durationMs: elapsedMs(startedAt, finishedAt),
         updatedAt: finishedAt
       })
@@ -448,6 +550,7 @@ export class DelegationRuntime {
         ...record,
         status: args.signal.aborted ? 'aborted' : 'failed',
         error: errorMessage(error),
+        ...(error instanceof ChildTimeBudgetExceededError ? { budgetExceeded: 'time' } : {}),
         durationMs: elapsedMs(startedAt, finishedAt),
         updatedAt: finishedAt
       })
@@ -616,7 +719,8 @@ export class DelegationRuntime {
         childId: record.id,
         childLabel: record.label,
         childStatus: record.status,
-        childSeq: ++this.childSeq,
+        childSeq: this.stableChildSeq(record),
+        ...(record.detached ? { detached: true } : {}),
         ...(record.model ? { childModel: record.model } : {}),
         ...(record.providerId ? { childProviderId: record.providerId } : {}),
         ...(record.profile ? { childProfile: record.profile } : {}),
@@ -634,11 +738,58 @@ export class DelegationRuntime {
     })
   }
 
+  private nextChildSeq(childId: string): number {
+    const existing = this.childSeqById.get(childId)
+    if (existing !== undefined) return existing
+    const next = ++this.childSeq
+    this.childSeqById.set(childId, next)
+    return next
+  }
+
+  private stableChildSeq(record: ChildRunRecord): number {
+    if (record.childSeq !== undefined) {
+      this.childSeqById.set(record.id, record.childSeq)
+      this.childSeq = Math.max(this.childSeq, record.childSeq)
+      return record.childSeq
+    }
+    return this.nextChildSeq(record.id)
+  }
+
   private recordExternalUsage(record: ChildRunRecord): void {
-    if (record.status !== 'completed') return
     const usage = toUsageSnapshot(record.usage)
     if (usage.totalTokens <= 0 && usage.costUsd === undefined && usage.costCny === undefined) return
     this.options.recordExternalUsage?.(record.parentThreadId, usage)
+  }
+
+  private async notifyDetachedChild(record: ChildRunRecord): Promise<void> {
+    if (record.status !== 'completed' && record.status !== 'failed') return
+    if (!this.options.threadStore || !this.options.turns || !this.runTurn) return
+    const thread = await this.options.threadStore.get(record.parentThreadId)
+    if (!thread) return
+    const notice = formatDetachedChildNotice(record)
+    const displayText = formatDetachedChildDisplayText(record)
+    if (thread.status === 'running') {
+      const runningTurn = [...thread.turns].reverse().find((turn) => turn.status === 'running')
+      if (runningTurn) {
+        await this.options.turns.steerTurn({
+          threadId: record.parentThreadId,
+          turnId: runningTurn.id,
+          text: notice,
+          displayText,
+          messageSource: 'background_subagent'
+        })
+        return
+      }
+    }
+    const started = await this.options.turns.startTurn({
+      threadId: record.parentThreadId,
+      request: {
+        prompt: notice,
+        displayText,
+        messageSource: 'background_subagent'
+      }
+    })
+    void this.runTurn(record.parentThreadId, started.turnId)
   }
 
   private now(): string {
@@ -704,6 +855,98 @@ export function aggregateChildRuns(records: readonly ChildRunRecord[]): ChildRun
     b.totalTokens - a.totalTokens ||
     a.key.localeCompare(b.key)
   )
+}
+
+class ChildTimeBudgetExceededError extends Error {
+  constructor(readonly timeBudgetMs: number) {
+    super(`child time budget exhausted after ${timeBudgetMs}ms`)
+    this.name = 'ChildTimeBudgetExceededError'
+  }
+}
+
+async function executeWithinTimeBudget<T>(
+  parentSignal: AbortSignal,
+  timeBudgetMs: number | undefined,
+  execute: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  if (parentSignal.aborted) throw new Error('child run aborted')
+  if (!timeBudgetMs) return execute(parentSignal)
+
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let rejectCancellation: ((error: Error) => void) | undefined
+  const cancellation = new Promise<never>((_resolve, reject) => {
+    rejectCancellation = reject
+  })
+  const onParentAbort = (): void => {
+    controller.abort(parentSignal.reason)
+    rejectCancellation?.(new Error('child run aborted'))
+  }
+  parentSignal.addEventListener('abort', onParentAbort, { once: true })
+  timer = setTimeout(() => {
+    const error = new ChildTimeBudgetExceededError(timeBudgetMs)
+    controller.abort(error)
+    rejectCancellation?.(error)
+  }, timeBudgetMs)
+  timer.unref?.()
+
+  try {
+    return await Promise.race([execute(controller.signal), cancellation])
+  } finally {
+    if (timer) clearTimeout(timer)
+    parentSignal.removeEventListener('abort', onParentAbort)
+  }
+}
+
+function childContractError(
+  contract: { tokenBudget: number | undefined; returnFormat: ChildReturnFormat },
+  evidence: string[] | undefined,
+  usage: ChildRunRecord['usage']
+): string | undefined {
+  if (contract.tokenBudget !== undefined && usage.totalTokens > contract.tokenBudget) {
+    return `child token budget exhausted (${usage.totalTokens} > ${contract.tokenBudget})`
+  }
+  if (contract.returnFormat === 'evidence' && !evidence?.some((item) => item.trim().length > 0)) {
+    return 'child contract requires evidence but none was returned'
+  }
+  return undefined
+}
+
+function positiveInteger(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined
+  if (!Number.isInteger(value) || value <= 0) throw new Error('child budgets must be positive integers')
+  return value
+}
+
+function formatDetachedChildDisplayText(record: ChildRunRecord): string {
+  const label = record.label?.trim() || record.profile?.trim() || record.id
+  return `Background subagent ${label} ${record.status}`
+}
+
+function formatDetachedChildNotice(record: ChildRunRecord): string {
+  const label = record.label?.trim() || record.profile?.trim() || record.id
+  const lines = [
+    '<background_subagent_completed>',
+    `<child_id>${escapeXml(record.id)}</child_id>`,
+    `<label>${escapeXml(label)}</label>`,
+    `<status>${record.status === 'failed' ? 'failed' : 'completed'}</status>`
+  ]
+  if (record.summary?.trim()) {
+    lines.push(`<summary>${escapeXml(record.summary.trim())}</summary>`)
+  }
+  if (record.error?.trim()) {
+    lines.push(`<error>${escapeXml(record.error.trim())}</error>`)
+  }
+  lines.push('</background_subagent_completed>')
+  return lines.join('\n')
+}
+
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 const defaultExecutor: ChildRunExecutor = async (input) => {

@@ -4,6 +4,7 @@ import type {
   CoreAttachmentTextFallbackJson,
   CoreMemoryDiagnosticsJson,
   CoreMemoryRecordJson,
+  CoreMcpOAuthDiagnosticJson,
   CoreRuntimeInfoJson,
   CoreRuntimeSkillJson,
   CoreRuntimeToolDiagnosticsJson
@@ -61,6 +62,16 @@ export type RuntimeChildMetadata = {
   childToolPolicy?: 'readOnly' | 'inherit'
   childStatus: 'queued' | 'running' | 'completed' | 'failed' | 'aborted'
   childSeq: number
+  detached?: boolean
+  prefixReused?: boolean
+  inheritedHistoryItems?: number
+  toolInvocations?: number
+  durationMs?: number
+  queuedMs?: number
+  totalTokens?: number
+  cacheHitRate?: number | null
+  costUsd?: number
+  costCny?: number
 }
 
 export type WebCitationSource = {
@@ -72,7 +83,7 @@ export type WebCitationSource = {
 
 export type RuntimeDisclosureMetadata = {
   displayText?: string
-  messageSource?: 'background_shell' // client-only rendering hint; never sent to the runtime
+  messageSource?: 'background_shell' | 'background_subagent' // client-only rendering hint; never sent to the runtime
   turnId?: string
   workspaceCheckpointId?: string
   attachmentIds?: string[]
@@ -83,6 +94,8 @@ export type RuntimeDisclosureMetadata = {
   injectedMemoryIds?: string[]
   injectedMemorySummaries?: Array<{ id: string; content: string }>
   skillInjectionBytes?: number
+  injectedInstructionSources?: Array<{ scope: 'global' | 'workspace'; path: string; bytes: number; truncated?: boolean }>
+  instructionInjectionBytes?: number
   child?: RuntimeChildMetadata
   sources?: WebCitationSource[]
 }
@@ -322,6 +335,8 @@ export type ToolEventPayload = {
   itemId: string
   summary: string
   status: 'running' | 'success' | 'error'
+  updateOnly?: boolean
+  createdAt?: string
   toolKind?: ToolItemKind
   detail?: string
   filePath?: string
@@ -331,6 +346,7 @@ export type ToolEventPayload = {
 export type RuntimeStatusEventPayload = {
   kind:
     | 'tool_result_upload_wait'
+    | 'model_request_retry'
     | 'tool_catalog_changed'
     | 'tool_storm_suppressed'
     | 'compaction_summary_fallback'
@@ -339,6 +355,10 @@ export type RuntimeStatusEventPayload = {
   createdAt?: string
   message?: string
   toolResultCount?: number
+  status?: number
+  attempt?: number
+  maxAttempts?: number
+  delayMs?: number
   changeKind?: 'additive' | 'breaking'
   toolName?: string
   callId?: string
@@ -477,6 +497,7 @@ export interface AgentProvider {
     options?: {
       mode?: string
       model?: string
+      providerId?: string
       reasoningEffort?: string
       displayText?: string
       guiPlan?: {
@@ -487,6 +508,7 @@ export interface AgentProvider {
         sourceRequest?: string
         title?: string
       }
+      guiDesignCanvas?: boolean
       attachmentIds?: string[]
       workspaceCheckpointId?: string
       fileReferences?: UserFileReference[]
@@ -496,15 +518,20 @@ export interface AgentProvider {
   reviewThread?(
     threadId: string,
     target: ReviewTarget,
-    options?: { model?: string }
+    options?: { model?: string; providerId?: string }
   ): Promise<{ turnId: string; threadId: string; userMessageItemId?: string; reviewItemId?: string }>
   getRuntimeInfo?(): Promise<CoreRuntimeInfoJson>
   getToolDiagnostics?(): Promise<CoreRuntimeToolDiagnosticsJson>
+  getMcpOAuthDiagnostics?(): Promise<CoreMcpOAuthDiagnosticJson[]>
+  clearMcpOAuthCredentials?(serverId?: string): Promise<string[]>
+  authorizeMcpOAuthCredentials?(serverId: string): Promise<import('./kun-contract').CoreMcpOAuthAuthorizeResponseJson>
   listSkills?(): Promise<CoreRuntimeSkillJson[]>
   uploadAttachment?(input: {
     name: string
     mimeType?: string
     dataBase64: string
+    documentText?: string
+    pageCount?: number
     localFilePath?: string
     textFallback?: CoreAttachmentTextFallbackJson
     threadId?: string
