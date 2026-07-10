@@ -716,6 +716,34 @@ describe('Kun built-in tools', () => {
     })
   })
 
+  it('blocks background shell control in a read-only sandbox', async () => {
+    let listCalls = 0
+    const backgroundHost = new LocalToolHost({
+      tools: [createBackgroundShellTool({
+        listBackgroundSessions: () => {
+          listCalls += 1
+          return []
+        }
+      })]
+    })
+    const context = buildContext(workspace, { sandboxMode: 'read-only' })
+
+    const advertised = await backgroundHost.listTools(context)
+    expect(advertised.map((tool) => tool.name)).not.toContain('background_shell')
+
+    const result = await backgroundHost.execute({
+      callId: 'call_background_shell_readonly',
+      toolName: 'background_shell',
+      arguments: { action: 'list' }
+    }, context)
+    expect(result.item).toMatchObject({
+      kind: 'tool_result',
+      isError: true,
+      output: { code: 'sandbox_command_blocked' }
+    })
+    expect(listCalls).toBe(0)
+  })
+
   it('rejects a background shell once its running-session capacity is full', async () => {
     const backgroundHost = new LocalToolHost({
       tools: [

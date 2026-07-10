@@ -48,7 +48,11 @@ export function createBackgroundShellTool(options: BackgroundShellToolOptions = 
       additionalProperties: false
     },
     policy: 'auto',
-    toolKind: 'tool_call',
+    // `write` sends arbitrary stdin to a live shell, which can execute a
+    // command even if the shell was created before a sandbox-policy change.
+    // Keep the whole multipurpose tool in the command-execution class until
+    // read-only observation actions are split into a separate tool.
+    toolKind: 'command_execution',
     execute: async (args, context) =>
       withToolBoundary(async () => {
         const action = typeof args.action === 'string' ? args.action.trim() : ''
