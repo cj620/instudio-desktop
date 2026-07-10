@@ -48,7 +48,7 @@
 
 ## 5. Renderer event projection
 
-- [ ] 5.1 Capture live, replay, reconnect, duplicate completion, approval/user-input,
+- [x] 5.1 Capture live, replay, reconnect, duplicate completion, approval/user-input,
   child-agent, goal/todo, and workspace-refresh projections.
 - [ ] 5.2 Introduce normalized runtime projection action types.
 - [ ] 5.3 Extract pure item/event-to-action normalization from `kun-mapper`.

@@ -1360,6 +1360,11 @@ export function buildThreadEventSink(
     },
     onTurnComplete: () => {
       if (!isCurrentStream()) return
+      // Reconnect/replay can deliver the same terminal event after the first
+      // projection already cleared the active turn. Treat it as a no-op so
+      // notifications, mirrors, workspace refreshes and queue drains remain
+      // once-only for one completion identity.
+      if (!get().busy && !get().currentTurnId) return
       resetBusyRecoveryAttempts()
       clearBusyWatchdog()
       const completedState = get()

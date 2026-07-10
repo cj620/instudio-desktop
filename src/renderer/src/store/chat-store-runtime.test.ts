@@ -23,6 +23,7 @@ import {
   emptyWriteThreadRegistry,
   markWriteThread
 } from '../write/write-thread-registry'
+import { useWriteWorkspaceStore } from '../write/write-workspace-store'
 
 function makeSinkHarness(overrides: Partial<ChatState> = {}): {
   getState: () => ChatState
@@ -304,6 +305,71 @@ describe('thread event sink binding', () => {
       turnId: 'turn-current',
       text: 'Workspace is /tmp/project.'
     })
+  })
+
+  it('projects a replayed duplicate completion once, including external effects', () => {
+    const showTurnCompleteNotification = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('window', {
+      kunGui: { showTurnCompleteNotification }
+    })
+    const refreshThreads = vi.fn(async () => undefined)
+    const drainQueuedMessages = vi.fn(async () => undefined)
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-duplicate-completion',
+      currentTurnId: 'turn-duplicate-completion',
+      currentTurnUserId: 'user-duplicate-completion',
+      blocks: [
+        { kind: 'user', id: 'user-duplicate-completion', turnId: 'turn-duplicate-completion', text: 'hello' },
+        { kind: 'assistant', id: 'assistant-duplicate-completion', turnId: 'turn-duplicate-completion', text: 'done' }
+      ],
+      threads: [makeThread({ id: 'thread-duplicate-completion', title: 'Duplicate completion' })],
+      refreshThreads,
+      drainQueuedMessages
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-duplicate-completion' })
+
+    sink.onTurnComplete()
+    const projectedOnce = getState()
+    sink.onTurnComplete()
+
+    expect(getState()).toEqual(projectedOnce)
+    expect(showTurnCompleteNotification).toHaveBeenCalledTimes(1)
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
+    expect(drainQueuedMessages).toHaveBeenCalledTimes(1)
+    vi.unstubAllGlobals()
+  })
+
+  it('refreshes the active Write workspace exactly for a successful in-workspace file change', () => {
+    const originalWriteState = useWriteWorkspaceStore.getState()
+    const refreshWorkspace = vi.fn(async () => undefined)
+    const syncActiveFileFromDisk = vi.fn(async () => true)
+    useWriteWorkspaceStore.setState({
+      workspaceRoot: '/workspace/write',
+      activeFilePath: '/workspace/write/draft.md',
+      refreshWorkspace,
+      syncActiveFileFromDisk
+    })
+    const { set, get } = makeSinkHarness({ route: 'write' })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onTool({
+      itemId: 'tool-write',
+      summary: 'write_file',
+      status: 'success',
+      toolKind: 'file_change',
+      filePath: 'draft.md'
+    })
+
+    expect(refreshWorkspace).toHaveBeenCalledOnce()
+    expect(refreshWorkspace).toHaveBeenCalledWith('/workspace/write')
+    expect(syncActiveFileFromDisk).toHaveBeenCalledOnce()
+    expect(syncActiveFileFromDisk).toHaveBeenCalledWith('/workspace/write', {
+      path: '/workspace/write/draft.md',
+      animate: true,
+      force: true,
+      reviewAsDiff: true
+    })
+    useWriteWorkspaceStore.setState(originalWriteState, true)
   })
 })
 
