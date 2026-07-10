@@ -36,6 +36,8 @@
 
 ## 4. Context and tool pipeline boundaries
 
+- [x] 4.0 Extract pure tool-dispatch lane and homogeneous-batch policy without
+  moving suppression, execution, result persistence, or event ordering.
 - [ ] 4.1 Extract turn-context resolution while preserving model, policy,
   workspace, attachment, memory, skill, and tool-schema inputs.
 - [ ] 4.2 Extract tool execution service with existing approval, user-input,
