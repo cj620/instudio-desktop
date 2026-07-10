@@ -13,13 +13,13 @@
   from module globals into a `KunProcessController` while preserving exports.
 - [x] 2.2 Extract readiness polling, health probing, startup timeout, and unexpected
   exit policy behind a runtime health monitor.
-- [ ] 2.3 Extract generated-config and hot-apply/restart decision logic behind a
+- [x] 2.3 Extract generated-config and hot-apply/restart decision logic behind a
   runtime configuration service.
 - [x] 2.4 Introduce a main-process runtime supervisor for ensure, restart, watchdog,
   and settings-apply serialization.
 - [x] 2.5 Extract application shutdown coordination and prove no runtime can restart
   after quit begins.
-- [ ] 2.6 Reduce `main/index.ts` and `kun-process.ts` to bootstrap/facade composition
+- [x] 2.6 Reduce `main/index.ts` and `kun-process.ts` to bootstrap/facade composition
   and remove duplicated lifecycle state.
 
 ## 3. Compatible model protocol boundaries
