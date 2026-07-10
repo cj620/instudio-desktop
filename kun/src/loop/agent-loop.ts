@@ -37,7 +37,6 @@ import {
   SVG_ARTIFACT_MODE_INSTRUCTION
 } from './design-mode.js'
 import { effectiveHistoryAfterLatestCompaction } from './compaction-history.js'
-import { generateThreadTitle, resolveRoleModel } from './title-generator.js'
 import type { RolesConfig } from '../config/kun-config.js'
 import { InflightTracker } from './inflight-tracker.js'
 import { SteeringQueue } from './steering-queue.js'
@@ -57,7 +56,6 @@ import {
   makeAssistantReasoningItem,
   makeErrorItem
 } from '../domain/item.js'
-import { touchThread } from '../domain/thread.js'
 import { memoryPreview } from '../shared/memory-preview.js'
 import { repairModelHistoryItems } from '../domain/model-history-repair.js'
 import type { TurnItem } from '../contracts/items.js'
@@ -86,12 +84,13 @@ import { memoryInstructions } from './memory-instructions.js'
 import { InteractiveToolBridge } from './interactive-tool-bridge.js'
 import { TurnContextResolver, resolveTurnModeContext } from './turn-context-resolver.js'
 import { TurnFinalizer, type TurnFinalizationRequest } from './turn-finalizer.js'
-import { canUpgradeThreadTitle } from './thread-title-policy.js'
 import { normalizeTurnLimits, type TurnLimitsConfig } from './turn-limits.js'
 import {
   svgArtifactCompletionState
 } from './svg-artifact-completion.js'
 import { RoundOutcomeCoordinator } from './round-outcome-coordinator.js'
+import { ThreadTitleService } from './thread-title-service.js'
+import { TurnBudgetGate } from './turn-budget-gate.js'
 import {
   TurnAttachmentService,
   attachmentRequestPipelineDetails,
@@ -288,6 +287,8 @@ export class AgentLoop {
   private readonly historyCompaction: HistoryCompactionService
   private readonly modelRoundEngine: ModelRoundEngine
   private readonly roundOutcome: RoundOutcomeCoordinator
+  private readonly threadTitle: ThreadTitleService
+  private readonly budgetGate: TurnBudgetGate
   private readonly turnAttachments: TurnAttachmentService
   private readonly turnContextResolver: TurnContextResolver
   private readonly interactiveToolBridge: InteractiveToolBridge
@@ -322,6 +323,21 @@ export class AgentLoop {
     })
     this.turnAttachments = new TurnAttachmentService(opts.attachmentStore)
     this.modelRouting = new ModelRoutingService(opts.model)
+    this.threadTitle = new ThreadTitleService({
+      threadStore: opts.threadStore,
+      sessionStore: opts.sessionStore,
+      model: opts.model,
+      events: opts.events,
+      nowIso: opts.nowIso,
+      getRoles: () => opts.roles
+    })
+    this.budgetGate = new TurnBudgetGate({
+      threadStore: opts.threadStore,
+      turns: opts.turns,
+      events: opts.events,
+      usage: opts.usage,
+      nowIso: opts.nowIso
+    })
     this.goalTurns = new GoalTurnCoordinator({
       threadStore: opts.threadStore,
       turns: opts.turns,
@@ -543,7 +559,7 @@ export class AgentLoop {
         finalStatus = statusFromSettlement(settlement, reportedStatus)
         finalError = errorFromSettlement(settlement)
         if (finalStatus === 'completed') {
-          void this.maybeGenerateThreadTitle(threadId, turnId, signal).catch(() => {})
+          void this.threadTitle.generateAfterTurn(threadId, turnId, signal).catch(() => {})
         }
         return finalStatus
       }
@@ -559,7 +575,7 @@ export class AgentLoop {
       if (finalStatus === 'completed') {
         // Fire-and-forget: generate an LLM title after the FIRST assistant
         // reply completes, only when the thread still has a default title.
-        void this.maybeGenerateThreadTitle(threadId, turnId, signal).catch(() => {})
+        void this.threadTitle.generateAfterTurn(threadId, turnId, signal).catch(() => {})
       }
       return finalStatus
     } catch (error) {
@@ -628,70 +644,13 @@ export class AgentLoop {
     }
   }
 
-  /**
-   * After the FIRST assistant reply completes, generate a concise LLM title for
-   * the thread — but only when the thread still carries a default/placeholder
-   * title (so a user-set or already-generated title is never overwritten) and
-   * only on the first completed turn. Model precedence: titleModel -> smallModel
-   * -> main conversation model. Persists the title to the thread store and emits
-   * a `thread_updated` event so the renderer's list refreshes. Best-effort: any
-   * failure is swallowed by the fire-and-forget caller.
-   */
-  private async maybeGenerateThreadTitle(threadId: string, turnId: string, signal?: AbortSignal): Promise<void> {
-    const thread = await this.opts.threadStore.get(threadId)
-    if (!thread) return
-    // Only on the first completed turn so we don't re-title on every reply.
-    const completedTurns = thread.turns.filter((t) => t.status === 'completed').length
-    if (completedTurns > 1) return
-    if (!canUpgradeThreadTitle(thread)) return
-
-    const items = await this.opts.sessionStore.loadItems(threadId)
-    const userText = items.find((item) => item.kind === 'user_message')?.text ?? ''
-    if (!userText.trim()) return
-    const assistantText = items.find((item) => item.kind === 'assistant_text')?.text
-
-    const resolved = resolveRoleModel({
-      roleModel: this.opts.roles?.titleModel,
-      roleProviderId: this.opts.roles?.titleProviderId,
-      roles: this.opts.roles,
-      mainModel: thread.model || this.opts.model.model,
-      mainProviderId: thread.providerId
-    })
-    if (!resolved) return
-
-    const title = await generateThreadTitle({
-      threadId,
-      turnId,
-      modelClient: this.opts.model,
-      model: resolved.model,
-      ...(resolved.providerId ? { providerId: resolved.providerId } : {}),
-      userText,
-      ...(assistantText ? { assistantText } : {}),
-      ...(this.opts.roles?.titleReasoningEffort
-        ? { reasoningEffort: this.opts.roles.titleReasoningEffort }
-        : {}),
-      ...(signal ? { abortSignal: signal } : {})
-    })
-    if (!title) return
-
-    // Re-check and persist under the shared mutation lock so a concurrent
-    // title/goal/turn update cannot be overwritten by this delayed model call.
-    const updated = await this.mutateThread(threadId, async (latest) => {
-      if (!canUpgradeThreadTitle(latest)) return null
-      // Keep titleAuto:true — the LLM title is still auto-generated, so a later
-      // user rename can still lock it, but we won't re-title (gated by turn count).
-      const next = touchThread({ ...latest, title, titleAuto: true }, this.opts.nowIso())
-      await this.opts.threadStore.upsert(next)
-      return next
-    })
-    if (!updated) return
-    await this.opts.events.record({
-      kind: 'thread_updated',
-      threadId,
-      title: updated.title,
-      titleAuto: true,
-      status: updated.status
-    })
+  /** Compatibility seam retained for focused mutation-race tests. */
+  private async maybeGenerateThreadTitle(
+    threadId: string,
+    turnId: string,
+    signal?: AbortSignal
+  ): Promise<void> {
+    await this.threadTitle.generateAfterTurn(threadId, turnId, signal)
   }
 
   private rememberTurnFailure(turnId: string, failure: TurnExecutionFailure): void {
@@ -778,7 +737,7 @@ export class AgentLoop {
     })
     const { dedicatedSvgTurn, activePlanContext } = modeContext
     await this.recordPipelineStage(threadId, turnId, 'input_received', { stepIndex })
-    const budgetGate = await this.checkBudgetGate(thread, threadId, turnId)
+    const budgetGate = await this.budgetGate.check(thread, threadId, turnId)
     if (budgetGate === 'blocked') {
       // A cost-budget stop is a deliberate cap, not an interrupted goal turn:
       // suppress goal auto-resume so it isn't relaunched straight back into
@@ -1275,85 +1234,6 @@ export class AgentLoop {
       toolNames: input.toolNames.slice(0, 50),
       message: input.message
     })
-  }
-
-  private async checkBudgetGate(
-    thread: Awaited<ReturnType<ThreadStore['get']>>,
-    threadId: string,
-    turnId: string
-  ): Promise<'allow' | 'blocked'> {
-    if (!thread) return 'allow'
-    if (thread.goal?.status === 'usageLimited') {
-      await this.opts.events.record({
-        kind: 'error',
-        threadId,
-        turnId,
-        message: `Goal token budget exhausted: ${thread.goal.tokensUsed} used of ${thread.goal.tokenBudget ?? 0}.`,
-        code: 'goal_token_budget_limited',
-        severity: 'warning'
-      })
-      return 'blocked'
-    }
-    const budget = thread.costBudgetUsd
-    if (typeof budget !== 'number' || !Number.isFinite(budget) || budget <= 0) return 'allow'
-    const spent = this.opts.usage.forThread(threadId).costUsd ?? 0
-    if (spent >= budget) {
-      const message = `Cost budget exhausted for this thread: $${spent.toFixed(4)} used of $${budget.toFixed(4)}.`
-      await this.opts.turns.applyItem(threadId, makeErrorItem({
-        id: `item_${turnId}_budget_limited`,
-        threadId,
-        turnId,
-        message,
-        code: 'budget_limited'
-      }))
-      await this.opts.events.record({
-        kind: 'error',
-        threadId,
-        turnId,
-        message,
-        code: 'budget_limited'
-      })
-      return 'blocked'
-    }
-    if (spent >= budget * 0.8 && thread.costBudgetWarningSent !== true) {
-      const message = `Cost budget warning: $${spent.toFixed(4)} used of $${budget.toFixed(4)}.`
-      const warningMarked = await this.mutateThread(threadId, async (current) => {
-        const currentBudget = current.costBudgetUsd
-        if (
-          typeof currentBudget !== 'number' ||
-          !Number.isFinite(currentBudget) ||
-          currentBudget <= 0 ||
-          spent < currentBudget * 0.8 ||
-          current.costBudgetWarningSent === true
-        ) {
-          return false
-        }
-        await this.opts.threadStore.upsert({
-          ...current,
-          costBudgetWarningSent: true,
-          updatedAt: this.opts.nowIso()
-        })
-        return true
-      })
-      if (!warningMarked) return 'allow'
-      await this.opts.turns.applyItem(threadId, makeErrorItem({
-        id: `item_${turnId}_budget_warning`,
-        threadId,
-        turnId,
-        message,
-        code: 'budget_warning',
-        severity: 'warning'
-      }))
-      await this.opts.events.record({
-        kind: 'error',
-        threadId,
-        turnId,
-        message,
-        code: 'budget_warning',
-        severity: 'warning'
-      })
-    }
-    return 'allow'
   }
 
   private async recordGoalUsage(threadId: string, tokenDelta: number): Promise<void> {
