@@ -1,4 +1,5 @@
 import type { ModelCapabilityMetadata } from '../contracts/capabilities.js'
+import type { RuntimeErrorSeverity } from '../contracts/errors.js'
 import type { TurnItem } from '../contracts/items.js'
 import type { ModelToolSpec } from '../ports/model-client.js'
 import type {
@@ -11,6 +12,14 @@ import type {
 
 /** Terminal status exposed by the public AgentLoop turn boundary. */
 export type TurnExecutionStatus = 'completed' | 'failed' | 'aborted'
+
+/** Failure metadata retained until the lifecycle facade finalizes a turn. */
+export type TurnExecutionFailure = {
+  error: string
+  code?: string
+  details?: unknown
+  severity?: RuntimeErrorSeverity
+}
 
 /** Outcome returned by one native model round to the loop orchestrator. */
 export type ModelRoundOutcome = 'continue' | 'stop' | 'failed' | 'aborted'
