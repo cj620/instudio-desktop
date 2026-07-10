@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { RuntimeEvent } from '../contracts/events.js'
-import { AgentObservabilityRecorder, type AgentObservabilitySpan } from './agent-observability.js'
+import {
+  AgentObservabilityRecorder,
+  JsonlAgentObservabilitySink,
+  type AgentObservabilitySpan
+} from './agent-observability.js'
 
 class CaptureSink {
   spans: AgentObservabilitySpan[] = []
@@ -11,6 +18,27 @@ class CaptureSink {
 }
 
 describe('AgentObservabilityRecorder', () => {
+  const cleanup: string[] = []
+
+  afterEach(async () => {
+    await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+  })
+
+  it('writes observability JSONL with private filesystem permissions', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'kun-observability-'))
+    cleanup.push(root)
+    const output = join(root, 'private', 'spans.jsonl')
+    const sink = new JsonlAgentObservabilitySink(output)
+
+    await sink.emit({
+      schemaUrl: 'test', traceId: 'trace', spanId: 'span', name: 'span', kind: 'internal',
+      startTimeUnixNano: '0', endTimeUnixNano: '1', durationMs: 1, status: { code: 'OK' }, attributes: {}
+    })
+
+    expect((await stat(join(root, 'private'))).mode & 0o777).toBe(0o700)
+    expect((await stat(output)).mode & 0o777).toBe(0o600)
+  })
+
   it('exports turn usage and TTFT without assistant text payloads', async () => {
     const sink = new CaptureSink()
     const recorder = new AgentObservabilityRecorder(sink)

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { appendFile, mkdir } from 'node:fs/promises'
+import { appendFile, chmod, mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import type { RuntimeEvent } from '../contracts/events.js'
 import type { UsageSnapshot } from '../contracts/usage.js'
@@ -51,13 +51,19 @@ const SCHEMA_URL = 'https://opentelemetry.io/schemas/1.37.0'
 
 export class JsonlAgentObservabilitySink implements AgentObservabilitySink {
   private ready: Promise<void> | undefined
+  private hardened = false
 
   constructor(private readonly outputPath: string) {}
 
   async emit(span: AgentObservabilitySpan): Promise<void> {
-    this.ready ??= mkdir(dirname(this.outputPath), { recursive: true }).then(() => undefined)
+    this.ready ??= mkdir(dirname(this.outputPath), { recursive: true, mode: 0o700 })
+      .then(async () => { await chmod(dirname(this.outputPath), 0o700) })
     await this.ready
-    await appendFile(this.outputPath, JSON.stringify({ span }) + '\n', 'utf8')
+    await appendFile(this.outputPath, JSON.stringify({ span }) + '\n', { encoding: 'utf8', mode: 0o600 })
+    if (!this.hardened) {
+      await chmod(this.outputPath, 0o600)
+      this.hardened = true
+    }
   }
 }
 
