@@ -20,7 +20,11 @@ const MAX_TURN_DOCUMENT_CHARS = 400_000
  * write session/thread state; access authorization remains with AttachmentStore.
  */
 export class TurnAttachmentService {
-  constructor(private readonly attachmentStore?: AttachmentStore) {}
+  constructor(
+    private readonly attachmentStoreSource?:
+      | AttachmentStore
+      | (() => AttachmentStore | undefined)
+  ) {}
 
   async resolveTurnAttachments(input: {
     attachmentIds: readonly string[]
@@ -37,17 +41,18 @@ export class TurnAttachmentService {
     if (new Set(input.attachmentIds).size !== input.attachmentIds.length) {
       throw new Error('turn attachment ids must not contain duplicates')
     }
-    if (!this.attachmentStore) throw new Error('attachment store is unavailable')
+    const attachmentStore = this.attachmentStore()
+    if (!attachmentStore) throw new Error('attachment store is unavailable')
 
     const supportsImageInput = input.modelCapabilities.inputModalities.includes('image')
-    const textFallbackPolicy = this.attachmentStore.textFallbackPolicy()
+    const textFallbackPolicy = attachmentStore.textFallbackPolicy()
     const imageAttachments: ModelInputAttachment[] = []
     const textFallbacks: ModelTextAttachmentFallback[] = []
     const documents: ModelDocumentAttachment[] = []
     let remainingDocumentChars = MAX_TURN_DOCUMENT_CHARS
     let totalAttachmentBytes = 0
     for (const id of input.attachmentIds) {
-      const attachment = await this.attachmentStore.resolveContent(id, {
+      const attachment = await attachmentStore.resolveContent(id, {
         threadId: input.threadId,
         workspace: input.workspace
       })
@@ -118,9 +123,10 @@ export class TurnAttachmentService {
       typeof (firstAttachment as { id?: unknown }).id === 'string'
         ? (firstAttachment as { id: string }).id
         : ''
-    if (attachmentId && this.attachmentStore) {
+    const attachmentStore = this.attachmentStore()
+    if (attachmentId && attachmentStore) {
       try {
-        const content = await this.attachmentStore.resolveContent(attachmentId, {
+        const content = await attachmentStore.resolveContent(attachmentId, {
           threadId,
           ...(workspace ? { workspace } : {})
         })
@@ -144,6 +150,12 @@ export class TurnAttachmentService {
       }
     }
     return null
+  }
+
+  private attachmentStore(): AttachmentStore | undefined {
+    return typeof this.attachmentStoreSource === 'function'
+      ? this.attachmentStoreSource()
+      : this.attachmentStoreSource
   }
 }
 

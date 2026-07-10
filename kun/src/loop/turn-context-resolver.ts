@@ -68,6 +68,7 @@ export type TurnContextResolverDeps = {
   skillRuntime?: Pick<SkillRuntime, 'resolveTurn'>
   instructionRuntime?: Pick<InstructionRuntime, 'resolveTurn'>
   memoryStore?: Pick<MemoryStore, 'retrieve' | 'setLastInjected'>
+  getMemoryStore?: () => Pick<MemoryStore, 'retrieve' | 'setLastInjected'> | undefined
   interactiveToolBridge: Pick<InteractiveToolBridge, 'awaitUserInput'>
   forcedAllowedToolNames?: readonly string[]
   blockedProviderIds?: readonly string[]
@@ -104,7 +105,8 @@ export class TurnContextResolver {
     }) ?? EMPTY_SKILL_RESOLUTION
     const instructionResolution = await this.deps.instructionRuntime?.resolveTurn({ workspace }) ??
       EMPTY_INSTRUCTION_RESOLUTION
-    const memories = await retrieveMemories(this.deps.memoryStore, {
+    const memoryStore = this.deps.getMemoryStore?.() ?? this.deps.memoryStore
+    const memories = await retrieveMemories(memoryStore, {
       prompt: input.turn.prompt,
       workspace
     })
@@ -152,7 +154,7 @@ export class TurnContextResolver {
       ...(userInputDisabled ? { userInputDisabled: true } : {}),
       signal: input.signal
     }, {
-      memoryEnabled: Boolean(this.deps.memoryStore),
+      memoryEnabled: Boolean(memoryStore),
       ...(this.deps.blockedProviderIds ? { blockedProviderIds: this.deps.blockedProviderIds } : {}),
       ...(this.deps.blockedToolNames ? { blockedToolNames: this.deps.blockedToolNames } : {}),
       ...(this.deps.blockedSkillIds ? { blockedSkillIds: this.deps.blockedSkillIds } : {}),

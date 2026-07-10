@@ -321,7 +321,7 @@ export class AgentLoop {
       clearReadTracker: (threadId?: string) => opts.toolHost.clearReadTracker?.(threadId),
       rewriteThreadItemsFromSession: (threadId) => this.threadItems.syncFromSession(threadId)
     })
-    this.turnAttachments = new TurnAttachmentService(opts.attachmentStore)
+    this.turnAttachments = new TurnAttachmentService(() => opts.attachmentStore)
     this.modelRouting = new ModelRoutingService(opts.model)
     this.threadTitle = new ThreadTitleService({
       threadStore: opts.threadStore,
@@ -393,7 +393,7 @@ export class AgentLoop {
       resolveAttachments: (input) => this.turnAttachments.resolveTurnAttachments(input),
       ...(opts.skillRuntime ? { skillRuntime: opts.skillRuntime } : {}),
       ...(opts.instructionRuntime ? { instructionRuntime: opts.instructionRuntime } : {}),
-      ...(opts.memoryStore ? { memoryStore: opts.memoryStore } : {}),
+      getMemoryStore: () => opts.memoryStore,
       interactiveToolBridge: this.interactiveToolBridge,
       ...(opts.forcedAllowedToolNames ? { forcedAllowedToolNames: opts.forcedAllowedToolNames } : {}),
       ...(opts.blockedProviderIds ? { blockedProviderIds: opts.blockedProviderIds } : {}),

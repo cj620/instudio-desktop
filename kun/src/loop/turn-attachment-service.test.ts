@@ -66,6 +66,33 @@ describe('TurnAttachmentService', () => {
     })
   })
 
+  it('reads the live attachment store after runtime replacement', async () => {
+    let currentStore: AttachmentStore | undefined
+    const service = new TurnAttachmentService(() => currentStore)
+    const first = imageAttachment({ data: Buffer.from('first') })
+    const second = imageAttachment({ data: Buffer.from('second') })
+
+    currentStore = store(first)
+    await expect(service.resolveTurnAttachments({
+      attachmentIds: [first.id],
+      threadId: 'thread_1',
+      workspace: '/workspace',
+      modelCapabilities: { id: 'vision', inputModalities: ['image'], messageParts: [] }
+    })).resolves.toMatchObject({
+      imageAttachments: [{ dataBase64: first.data.toString('base64') }]
+    })
+
+    currentStore = store(second)
+    await expect(service.resolveTurnAttachments({
+      attachmentIds: [second.id],
+      threadId: 'thread_1',
+      workspace: '/workspace',
+      modelCapabilities: { id: 'vision', inputModalities: ['image'], messageParts: [] }
+    })).resolves.toMatchObject({
+      imageAttachments: [{ dataBase64: second.data.toString('base64') }]
+    })
+  })
+
   it('only supplies workspace-local image references to generate_image', () => {
     expect(imageGenerationReferenceInstructions({
       imageAttachments: [{

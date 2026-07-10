@@ -153,4 +153,49 @@ describe('TurnContextResolver', () => {
       effectiveMode: 'agent'
     })
   })
+
+  it('reads the live memory store after runtime replacement', async () => {
+    let currentMemoryStore: {
+      retrieve: ReturnType<typeof vi.fn>
+      setLastInjected: ReturnType<typeof vi.fn>
+    } | undefined
+    const resolver = new TurnContextResolver({
+      toolHost: { listTools: async () => [] },
+      resolveAttachments: async () => ({
+        imageAttachments: [], textFallbacks: [], documents: []
+      }),
+      getMemoryStore: () => currentMemoryStore,
+      interactiveToolBridge: { awaitUserInput: async () => ({ status: 'cancelled' }) }
+    })
+    const input = {
+      threadId: 'thread_1',
+      turnId: 'turn_1',
+      thread: thread(),
+      turn: turn({ attachmentIds: [] }),
+      history: [],
+      model: 'model_1',
+      modelCapabilities: { id: 'model_1', inputModalities: ['text' as const], messageParts: [] },
+      signal: new AbortController().signal,
+      mode: resolveTurnModeContext({ turn: turn(), workspace: '/workspace', threadMode: 'agent' as const }),
+      goalNoToolRecoverySteps: 0
+    }
+
+    await expect(resolver.resolve(input)).resolves.toMatchObject({ memories: [] })
+
+    currentMemoryStore = {
+      retrieve: vi.fn(async () => [{
+        id: 'memory_live',
+        content: 'live memory',
+        scope: 'workspace',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        deletedAt: null
+      }]),
+      setLastInjected: vi.fn()
+    }
+    await expect(resolver.resolve(input)).resolves.toMatchObject({
+      memories: [expect.objectContaining({ id: 'memory_live' })]
+    })
+    expect(currentMemoryStore.setLastInjected).toHaveBeenCalledWith(['memory_live'])
+  })
 })
