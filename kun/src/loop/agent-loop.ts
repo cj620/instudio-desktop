@@ -1937,7 +1937,13 @@ export class AgentLoop {
           sandboxMode: input.sandboxMode,
           summary: approval.summary
         })
-        return this.opts.approvalGate.request(approval)
+        return awaitAbortableApproval(
+          this.opts.approvalGate.request(approval),
+          input.signal,
+          () => {
+            this.opts.approvalGate.expire?.(approval.id, 'turn aborted while awaiting approval')
+          }
+        )
       },
       ...(input.userInputDisabled
         ? {}
@@ -1956,7 +1962,7 @@ export class AgentLoop {
   }): Promise<ToolHostResult> {
     return this.opts.inflight.run(
       {
-        id: `inflight_${input.call.callId}`,
+        id: `inflight_${input.threadId}_${input.turnId}_${input.call.callId}`,
         kind: 'tool',
         threadId: input.threadId,
         turnId: input.turnId,
@@ -3003,6 +3009,36 @@ function sanitizeProviderBaseUrl(baseUrl: string): string {
 
 function autoModelRouteKey(threadId: string, turnId: string): string {
   return `${threadId}:${turnId}`
+}
+
+function awaitAbortableApproval(
+  pending: Promise<'allow' | 'deny'>,
+  signal: AbortSignal,
+  onAbort: () => void
+): Promise<'allow' | 'deny'> {
+  if (signal.aborted) {
+    onAbort()
+    return Promise.reject(new Error('approval wait aborted'))
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener('abort', abort)
+    const abort = () => {
+      cleanup()
+      onAbort()
+      reject(new Error('approval wait aborted'))
+    }
+    signal.addEventListener('abort', abort, { once: true })
+    pending.then(
+      (decision) => {
+        cleanup()
+        resolve(decision)
+      },
+      (error) => {
+        cleanup()
+        reject(error)
+      }
+    )
+  })
 }
 
 export function memoryInstructions(memories: Array<{ id: string; content: string; scope: string }>): string[] {

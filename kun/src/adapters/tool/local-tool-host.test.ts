@@ -28,6 +28,28 @@ describe('LocalToolHost approval policy', () => {
     expect(result.approved).toBe(false)
   })
 
+  it('returns a model-visible error tool result when approval is denied', async () => {
+    const host = new LocalToolHost({ tools: [echoTool] })
+    const result = await host.execute(
+      { callId: 'call_denied', toolName: 'echo', arguments: { text: 'hello' } },
+      {
+        threadId: 'thread_1',
+        turnId: 'turn_1',
+        workspace: '/tmp/workspace',
+        approvalPolicy: 'always',
+        sandboxMode: 'danger-full-access',
+        abortSignal: new AbortController().signal,
+        awaitApproval: async () => 'deny'
+      } satisfies ToolHostContext
+    )
+
+    expect(result.item).toMatchObject({
+      kind: 'tool_result',
+      isError: true,
+      output: { code: 'approval_denied' }
+    })
+  })
+
   it('offloads oversized successful tool output to the artifact store', async () => {
     const artifactStore = new InMemoryArtifactStore()
     const host = new LocalToolHost({ tools: [LocalToolHost.defineTool({

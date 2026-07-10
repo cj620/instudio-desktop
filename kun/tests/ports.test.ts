@@ -65,6 +65,18 @@ describe('InMemoryApprovalGate', () => {
     expect(gate.decide('missing', 'deny')).toBe(false)
   })
 
+  it('expires a pending approval and settles its waiter', async () => {
+    const gate = new InMemoryApprovalGate()
+    const approval = createApprovalRequest({
+      id: 'a', threadId: 't', turnId: 'tu', toolName: 'echo', summary: 's'
+    })
+    const pending = gate.request(approval)
+
+    expect(gate.expire('a', 'turn aborted')).toBe(true)
+    await expect(pending).resolves.toBe('deny')
+    expect(gate.get('a')).toMatchObject({ status: 'expired', reason: 'turn aborted' })
+  })
+
   it('filters pending by thread', () => {
     const gate = new InMemoryApprovalGate()
     gate.request(

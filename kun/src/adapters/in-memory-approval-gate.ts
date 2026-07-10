@@ -1,6 +1,6 @@
 import type { ApprovalGate } from '../ports/approval-gate.js'
 import type { ApprovalRequest } from '../domain/approval.js'
-import { resolveApprovalRequest } from '../domain/approval.js'
+import { expireApprovalRequest, resolveApprovalRequest } from '../domain/approval.js'
 
 type PendingResolver = {
   resolve: (decision: 'allow' | 'deny') => void
@@ -32,6 +32,16 @@ export class InMemoryApprovalGate implements ApprovalGate {
     const resolver = this.resolvers.get(approvalId)
     this.resolvers.delete(approvalId)
     resolver?.resolve(decision)
+    return true
+  }
+
+  expire(approvalId: string, reason = 'turn cancelled'): boolean {
+    const approval = this.approvals.get(approvalId)
+    if (!approval || approval.status !== 'pending') return false
+    this.approvals.set(approvalId, { ...expireApprovalRequest(approval), reason })
+    const resolver = this.resolvers.get(approvalId)
+    this.resolvers.delete(approvalId)
+    resolver?.resolve('deny')
     return true
   }
 

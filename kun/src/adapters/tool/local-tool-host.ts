@@ -9,7 +9,7 @@ import type { UserInputQuestion } from '../../ports/user-input-gate.js'
 import type { ApprovalRequest } from '../../domain/approval.js'
 import { createApprovalRequest } from '../../domain/approval.js'
 import type { TurnItem } from '../../contracts/items.js'
-import { makeToolResultItem, makeApprovalItem } from '../../domain/item.js'
+import { makeToolResultItem } from '../../domain/item.js'
 import { buildBuiltinLocalTools } from './builtin-tools.js'
 import type { BuiltinLocalToolsOptions } from './builtin-tool-types.js'
 import { CapabilityRegistry } from './capability-registry.js'
@@ -185,7 +185,7 @@ export class LocalToolHost implements ToolHost {
     }
     const needsApproval = !preHooks.autoApproved && this.requiresApproval(tool, activeCall, context)
     if (needsApproval) {
-      const approvalId = `appr_${activeCall.callId}`
+      const approvalId = `appr_${context.threadId}_${context.turnId}_${activeCall.callId}`
       const approval: ApprovalRequest = createApprovalRequest({
         id: approvalId,
         threadId: context.threadId,
@@ -195,15 +195,16 @@ export class LocalToolHost implements ToolHost {
       })
       const decision = await context.awaitApproval(approval)
       if (decision !== 'allow') {
-        const item = makeApprovalItem({
-          id: `item_${approvalId}`,
-          turnId: context.turnId,
-          threadId: context.threadId,
-          approvalId,
-          toolName: activeCall.toolName,
-          summary: approval.summary
-        })
-        return { item, approved: false }
+        return {
+          item: this.errorToolResult(
+            context,
+            activeCall,
+            tool,
+            'Tool call was denied by the approval policy or user.',
+            'approval_denied'
+          ),
+          approved: false
+        }
       }
     }
     if (context.abortSignal.aborted) {
