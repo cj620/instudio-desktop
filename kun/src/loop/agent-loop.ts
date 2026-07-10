@@ -1011,12 +1011,14 @@ export class AgentLoop {
     // Per-turn mode overrides the thread mode so the GUI can toggle
     // Plan/agent (and run Build as agent) without recreating the thread.
     const effectiveMode = turn?.mode ?? thread?.mode
+    const providerId = turn?.providerId?.trim() || thread?.providerId?.trim()
     const modelRoute = await this.resolveTurnModel({
       threadId,
       turnId,
       latestRequest: turn?.prompt ?? '',
       items,
       signal,
+      ...(providerId ? { providerId } : {}),
       reasoningEffort: turn?.reasoningEffort,
       candidates: [turn?.model, thread?.model, this.opts.model.model]
     })
@@ -1229,7 +1231,6 @@ export class AgentLoop {
       contextInstructionCount: contextInstructions.length
     })
     const tokenEconomy = normalizeTokenEconomyConfig(this.opts.tokenEconomy)
-    const providerId = turn?.providerId?.trim() || thread?.providerId?.trim()
     const baseRequest: ModelRequest = {
       threadId,
       turnId,
@@ -2664,6 +2665,7 @@ export class AgentLoop {
     latestRequest: string
     items: readonly TurnItem[]
     signal: AbortSignal
+    providerId?: string
     reasoningEffort?: string
     candidates: Array<string | undefined>
   }): Promise<{ model: string; reasoningEffort?: string }> {
@@ -2687,6 +2689,7 @@ export class AgentLoop {
       modelClient: this.opts.model,
       threadId: input.threadId,
       turnId: input.turnId,
+      ...(input.providerId ? { providerId: input.providerId } : {}),
       latestRequest: input.latestRequest,
       recentContext: recentAutoRouterContext(input.items, input.turnId),
       selectedModelMode: 'auto',

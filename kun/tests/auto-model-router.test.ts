@@ -65,6 +65,7 @@ describe('auto model router', () => {
       modelClient,
       threadId: 'thr_1',
       turnId: 'turn_1',
+      providerId: 'private-provider',
       latestRequest: 'hello',
       recentContext: '',
       selectedModelMode: 'auto',
@@ -74,5 +75,6 @@ describe('auto model router', () => {
     const capturedRequest = seenRequest as ModelRequest | null
     expect(capturedRequest?.tools).toEqual([])
     expect(capturedRequest?.responseFormat).toBe('json_object')
+    expect(capturedRequest?.providerId).toBe('private-provider')
   })
 })
