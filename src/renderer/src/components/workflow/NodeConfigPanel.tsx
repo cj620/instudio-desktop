@@ -5,6 +5,7 @@ import { describeNodeOutput, extractNodeRefs, varTypeToInputType } from '@shared
 import { ModelPicker } from './ModelPicker'
 import { TriggerNodeEditor } from './node-editors/TriggerNodeEditor'
 import { AiNodeEditor } from './node-editors/AiNodeEditor'
+import { LogicAndHttpNodeEditor } from './node-editors/LogicAndHttpNodeEditor'
 import {
   SCHEDULE_REASONING_EFFORT_IDS,
   WORKFLOW_INPUT_FIELD_TYPES,
@@ -14,7 +15,6 @@ import {
   type WorkflowCodeCheckResult,
   type WorkflowCodeLanguage,
   type WorkflowConditionOperator,
-  type WorkflowHttpMethod,
   type WorkflowInputFieldType,
   type WorkflowInputFieldV1,
   type WorkflowNodeErrorMode,
@@ -43,7 +43,6 @@ function varTypeLabel(type: WorkflowVarType): string {
   return type.charAt(0).toUpperCase() + type.slice(1)
 }
 
-const HTTP_METHODS: WorkflowHttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 const CODE_PLACEHOLDERS: Record<WorkflowCodeLanguage, string> = {
   javascript: 'return { value: $json }',
   python: 'import sys, json\ndata = json.load(sys.stdin)\nprint(data.get("text", ""))',
@@ -900,224 +899,15 @@ export function NodeConfigPanel({
         ) : null}
 
         {node.type === 'condition' ? (
-          <>
-            <Field label={t('workflowConditionLeft')}>
-              <input
-                className={INPUT_CLASS}
-                value={node.config.leftExpr}
-                placeholder={t('workflowConditionLeftPlaceholder')}
-                onChange={(event) =>
-                  onChange({ ...node, config: { ...node.config, leftExpr: event.target.value } })
-                }
-              />
-            </Field>
-            <Field label={t('workflowConditionOperator')}>
-              <select
-                className={INPUT_CLASS}
-                value={node.config.operator}
-                onChange={(event) =>
-                  onChange({
-                    ...node,
-                    config: { ...node.config, operator: event.target.value as WorkflowConditionOperator }
-                  })
-                }
-              >
-                {CONDITION_OPERATORS.map((operator) => (
-                  <option key={operator} value={operator}>
-                    {t(`workflowOp_${operator}`)}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label={t('workflowConditionValue')}>
-              <input
-                className={INPUT_CLASS}
-                value={node.config.rightValue}
-                onChange={(event) =>
-                  onChange({ ...node, config: { ...node.config, rightValue: event.target.value } })
-                }
-              />
-            </Field>
-            <label className="flex items-center gap-2 text-[13px] text-ds-ink">
-              <input
-                type="checkbox"
-                checked={node.config.caseSensitive}
-                onChange={(event) =>
-                  onChange({ ...node, config: { ...node.config, caseSensitive: event.target.checked } })
-                }
-              />
-              {t('workflowConditionCaseSensitive')}
-            </label>
-          </>
+          <LogicAndHttpNodeEditor node={node} onChange={onChange} />
         ) : null}
 
         {node.type === 'set-fields' ? (
-          <>
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[12px] font-medium text-ds-muted">{t('workflowFields')}</span>
-                <button
-                  type="button"
-                  className="text-[12px] font-medium text-accent hover:underline"
-                  onClick={() =>
-                    onChange({ ...node, config: { ...node.config, fields: [...node.config.fields, { key: '', value: '' }] } })
-                  }
-                >
-                  + {t('workflowAddField')}
-                </button>
-              </div>
-              {node.config.fields.map((field, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <input
-                    className={INPUT_CLASS}
-                    placeholder={t('workflowFieldKey')}
-                    value={field.key}
-                    onChange={(event) => {
-                      const fields = node.config.fields.map((item, idx) =>
-                        idx === index ? { ...item, key: event.target.value } : item
-                      )
-                      onChange({ ...node, config: { ...node.config, fields } })
-                    }}
-                  />
-                  <input
-                    className={INPUT_CLASS}
-                    placeholder={t('workflowFieldValue')}
-                    value={field.value}
-                    onChange={(event) => {
-                      const fields = node.config.fields.map((item, idx) =>
-                        idx === index ? { ...item, value: event.target.value } : item
-                      )
-                      onChange({ ...node, config: { ...node.config, fields } })
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="shrink-0 text-ds-faint hover:text-red-500"
-                    onClick={() => {
-                      const fields = node.config.fields.filter((_, idx) => idx !== index)
-                      onChange({ ...node, config: { ...node.config, fields } })
-                    }}
-                    aria-label={t('workflowDeleteNode')}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <label className="flex items-center gap-2 text-[13px] text-ds-ink">
-              <input
-                type="checkbox"
-                checked={node.config.keepIncoming}
-                onChange={(event) =>
-                  onChange({ ...node, config: { ...node.config, keepIncoming: event.target.checked } })
-                }
-              />
-              {t('workflowKeepIncoming')}
-            </label>
-          </>
+          <LogicAndHttpNodeEditor node={node} onChange={onChange} />
         ) : null}
 
         {node.type === 'http-request' ? (
-          <>
-            <Field label={t('workflowHttpMethod')}>
-              <select
-                className={INPUT_CLASS}
-                value={node.config.method}
-                onChange={(event) =>
-                  onChange({ ...node, config: { ...node.config, method: event.target.value as WorkflowHttpMethod } })
-                }
-              >
-                {HTTP_METHODS.map((method) => (
-                  <option key={method} value={method}>
-                    {method}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label={t('workflowHttpUrl')}>
-              <input
-                className={INPUT_CLASS}
-                value={node.config.url}
-                placeholder="https://"
-                onChange={(event) =>
-                  onChange({ ...node, config: { ...node.config, url: event.target.value } })
-                }
-              />
-            </Field>
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[12px] font-medium text-ds-muted">{t('workflowHttpHeaders')}</span>
-                <button
-                  type="button"
-                  className="text-[12px] font-medium text-accent hover:underline"
-                  onClick={() =>
-                    onChange({
-                      ...node,
-                      config: { ...node.config, headers: [...node.config.headers, { key: '', value: '' }] }
-                    })
-                  }
-                >
-                  + {t('workflowHttpAddHeader')}
-                </button>
-              </div>
-              {node.config.headers.map((header, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <input
-                    className={INPUT_CLASS}
-                    placeholder={t('workflowHeaderKey')}
-                    value={header.key}
-                    onChange={(event) => {
-                      const headers = node.config.headers.map((item, idx) =>
-                        idx === index ? { ...item, key: event.target.value } : item
-                      )
-                      onChange({ ...node, config: { ...node.config, headers } })
-                    }}
-                  />
-                  <input
-                    className={INPUT_CLASS}
-                    placeholder={t('workflowHeaderValue')}
-                    value={header.value}
-                    onChange={(event) => {
-                      const headers = node.config.headers.map((item, idx) =>
-                        idx === index ? { ...item, value: event.target.value } : item
-                      )
-                      onChange({ ...node, config: { ...node.config, headers } })
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="shrink-0 text-ds-faint hover:text-red-500"
-                    onClick={() => {
-                      const headers = node.config.headers.filter((_, idx) => idx !== index)
-                      onChange({ ...node, config: { ...node.config, headers } })
-                    }}
-                    aria-label={t('workflowDeleteNode')}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <Field label={t('workflowHttpBody')}>
-              <textarea
-                className={`${INPUT_CLASS} min-h-[80px] resize-y font-mono`}
-                value={node.config.body}
-                onChange={(event) =>
-                  onChange({ ...node, config: { ...node.config, body: event.target.value } })
-                }
-              />
-            </Field>
-            <label className="flex items-center gap-2 text-[13px] text-ds-ink">
-              <input
-                type="checkbox"
-                checked={node.config.parseJson}
-                onChange={(event) =>
-                  onChange({ ...node, config: { ...node.config, parseJson: event.target.checked } })
-                }
-              />
-              {t('workflowHttpParseJson')}
-            </label>
-          </>
+          <LogicAndHttpNodeEditor node={node} onChange={onChange} />
         ) : null}
 
         {node.type === 'switch' ? (

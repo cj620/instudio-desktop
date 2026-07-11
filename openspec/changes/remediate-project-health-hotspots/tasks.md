@@ -2,7 +2,7 @@
 
 - [x] 1.1 Record full Kun/root typecheck, test, and build baselines and separate
   concurrent-work failures from hotspot behavior.
-- [ ] 1.2 Add deterministic lifecycle, protocol, event-projection, workflow-run,
+- [x] 1.2 Add deterministic lifecycle, protocol, event-projection, workflow-run,
   persistence, and UI-interaction characterization fixtures where coverage is weak.
 - [x] 1.3 Document public import paths, HTTP/SSE contracts, persisted formats,
   provider request transcripts, and settings shapes that must remain compatible.
@@ -68,7 +68,7 @@
 - [x] 6.5 Extract workflow scheduler and live-status projection.
 - [x] 6.6 Split `NodeConfigPanel` into node-family editors with shared binding and
   validation components.
-- [ ] 6.7 Reduce `WorkflowRuntime` and the shared panel to composition facades.
+- [x] 6.7 Reduce `WorkflowRuntime` and the shared panel to composition facades.
 
 ## 7. Hybrid thread persistence
 
