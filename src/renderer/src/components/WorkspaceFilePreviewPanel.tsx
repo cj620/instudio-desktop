@@ -8,7 +8,8 @@ import {
   ExternalLink,
   FileCode2,
   Loader2,
-  Palette,
+  Maximize2,
+  Minimize2,
   PanelRightClose,
   X
 } from 'lucide-react'
@@ -49,8 +50,6 @@ type Props = {
   onSelectTarget?: (target: WorkspaceFileTarget) => void
   onCloseTarget?: (target: WorkspaceFileTarget) => void
   onClose: () => void
-  /** Redesign this file in design mode (code → design). */
-  onRedesign?: (path: string, workspaceRoot: string) => void
 }
 
 const COPY_RESET_MS = 1400
@@ -185,14 +184,14 @@ export function WorkspaceFilePreviewPanel({
   className,
   onSelectTarget,
   onCloseTarget,
-  onClose,
-  onRedesign
+  onClose
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const [result, setResult] = useState<WorkspaceFileReadResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [markdownRendered, setMarkdownRendered] = useState(true)
+  const [readingMode, setReadingMode] = useState(false)
   const [highlightHtml, setHighlightHtml] = useState(() => renderFallbackCodeHtml(''))
   const scrollRef = useRef<HTMLDivElement>(null)
   const copyResetRef = useRef<number | null>(null)
@@ -257,6 +256,15 @@ export function WorkspaceFilePreviewPanel({
     },
     []
   )
+
+  useEffect(() => {
+    if (!readingMode) return
+    const exitReadingMode = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setReadingMode(false)
+    }
+    document.addEventListener('keydown', exitReadingMode)
+    return () => document.removeEventListener('keydown', exitReadingMode)
+  }, [readingMode])
 
   const displayPath = useMemo(() => {
     const root = target?.workspaceRoot ?? workspaceRoot
@@ -338,10 +346,19 @@ export function WorkspaceFilePreviewPanel({
   }
 
   return (
-    <aside
-      data-kun-workspace-root={(target?.workspaceRoot ?? workspaceRoot).replaceAll('\\', '/')}
-      className={`ds-no-drag ds-code-sidebar flex min-h-0 flex-col border-l border-ds-border-muted ${className ?? ''}`}
-    >
+    <>
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-hidden="true"
+        className={`ds-file-preview-reading-backdrop ${readingMode ? 'is-visible' : ''}`}
+        onClick={() => setReadingMode(false)}
+      />
+      <aside
+        data-kun-workspace-root={(target?.workspaceRoot ?? workspaceRoot).replaceAll('\\', '/')}
+        data-reading-mode={readingMode ? 'true' : 'false'}
+        className={`ds-no-drag ds-code-sidebar flex min-h-0 flex-col border-l border-ds-border-muted ${readingMode ? 'is-reading' : ''} ${className ?? ''}`}
+      >
       <div className="ds-code-sidebar-topbar">
         <div className="ds-code-sidebar-tabs" role="tablist" aria-label={t('filePreviewOpenFiles')}>
           {(openTargets.length ? openTargets : target ? [target] : []).map((item) => {
@@ -407,17 +424,20 @@ export function WorkspaceFilePreviewPanel({
         </div>
 
         <div className="ds-code-sidebar-actions">
-          {onRedesign && target ? (
-            <button
-              type="button"
-              onClick={() => onRedesign(target.path, target.workspaceRoot ?? workspaceRoot)}
-              className="ds-code-sidebar-icon-button"
-              title={t('designFromCode')}
-              aria-label={t('designFromCode')}
-            >
-              <Palette className="h-4 w-4" strokeWidth={1.75} />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => setReadingMode((value) => !value)}
+            className="ds-code-sidebar-icon-button"
+            title={readingMode ? t('filePreviewExitReadingMode') : t('filePreviewEnterReadingMode')}
+            aria-label={readingMode ? t('filePreviewExitReadingMode') : t('filePreviewEnterReadingMode')}
+            aria-pressed={readingMode}
+          >
+            {readingMode ? (
+              <Minimize2 className="h-4 w-4" strokeWidth={1.8} />
+            ) : (
+              <Maximize2 className="h-4 w-4" strokeWidth={1.8} />
+            )}
+          </button>
           {isMarkdownFile ? (
             <button
               type="button"
@@ -596,6 +616,7 @@ export function WorkspaceFilePreviewPanel({
           </div>
         )}
       </div>
-    </aside>
+      </aside>
+    </>
   )
 }

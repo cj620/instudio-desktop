@@ -81,7 +81,6 @@ type WorkbenchRightPanelElementOptions = Pick<
     | 'workspaceRoot'
     | 'onSelectTarget'
     | 'onCloseTarget'
-    | 'onRedesign'
   >
 }
 

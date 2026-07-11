@@ -7,8 +7,6 @@ import { parseProjectDesignMdWithOfficialLint } from './design-md/design-md-adap
 import { PROJECT_DESIGN_MD_PATH } from './design-md/design-md-paths'
 import type { DesignWorkspaceState } from './design-workspace-store-types'
 import { buildImplementDesignPrompt } from './design-implement-prompt'
-import { createDesignArtifactId } from './design-types'
-import { buildDesignFromCodePrompt } from './design-turn-prompt'
 
 export type DesignCodeRoundtripWriteApi = {
   readWorkspaceFile?: (payload: WorkspaceFileTarget) => Promise<WorkspaceFileReadResult>
@@ -58,54 +56,6 @@ export type DispatchImplementDesignTurnResult =
   | { status: 'sent'; designSystemHash?: string }
   | { status: 'unsupported-artifact' }
   | { status: 'send-failed'; designSystemHash?: string }
-
-type DesignFromCodeState = Pick<
-  DesignWorkspaceState,
-  'designContext'
->
-
-export type PrepareDesignFromCodeTurnOptions = {
-  sourceRelativePath: string
-  workspaceRoot: string
-  documentId: string
-  title: string
-  designState: DesignFromCodeState
-  createArtifactId?: () => string
-  now?: () => string
-}
-
-export type PreparedDesignFromCodeTurn = {
-  artifact: DesignArtifact & { kind: 'html' }
-  prompt: string
-}
-
-type DispatchDesignFromCodeState = DesignFromCodeState & Pick<
-  DesignWorkspaceState,
-  | 'setWorkspaceRoot'
-  | 'ensureActiveDocument'
-  | 'upsertArtifact'
-  | 'assistantModel'
-  | 'assistantProviderId'
->
-
-export type DispatchDesignFromCodeTurnOptions = {
-  sourceRelativePath: string
-  workspaceRoot: string
-  title: string
-  displayText: string
-  designState: DispatchDesignFromCodeState
-  ensureDesignThreadForWorkspace: (workspaceRoot: string, documentId: string) => Promise<string | null>
-  sendMessage: DesignCodeRoundtripSendMessage
-  resolveProviderId: (model: string) => string
-  createArtifactId?: () => string
-  now?: () => string
-}
-
-export type DispatchDesignFromCodeTurnResult =
-  | { status: 'sent'; artifactId: string; threadId: string }
-  | { status: 'empty-source' }
-  | { status: 'missing-thread' }
-  | { status: 'send-failed'; artifactId: string; threadId: string }
 
 export function canPrepareImplementDesignTurn(
   artifact: DesignArtifact | null | undefined
@@ -196,66 +146,4 @@ export async function dispatchImplementDesignTurn(
     prepared.designSystemHash
   )
   return implementationDispatchResult('sent', prepared.designSystemHash)
-}
-
-export function prepareDesignFromCodeTurn(
-  options: PrepareDesignFromCodeTurnOptions
-): PreparedDesignFromCodeTurn {
-  const source = options.sourceRelativePath.trim()
-  const artifactId = (options.createArtifactId ?? createDesignArtifactId)()
-  const createdAt = (options.now ?? (() => new Date().toISOString()))()
-  const relativePath = `.kun-design/${options.documentId}/${artifactId}/v1.html`
-  const artifact: DesignArtifact & { kind: 'html' } = {
-    id: artifactId,
-    kind: 'html',
-    title: options.title,
-    relativePath,
-    createdAt,
-    updatedAt: createdAt,
-    versions: [{ id: `${artifactId}-v1`, relativePath, createdAt, summary: options.title }]
-  }
-  return {
-    artifact,
-    prompt: buildDesignFromCodePrompt({
-      sourceRelativePath: source,
-      artifactRelativePath: relativePath,
-      workspaceRoot: options.workspaceRoot,
-      designContext: options.designState.designContext
-    })
-  }
-}
-
-export async function dispatchDesignFromCodeTurn(
-  options: DispatchDesignFromCodeTurnOptions
-): Promise<DispatchDesignFromCodeTurnResult> {
-  const source = options.sourceRelativePath.trim()
-  if (!source) return { status: 'empty-source' }
-
-  options.designState.setWorkspaceRoot(options.workspaceRoot)
-  const documentId = options.designState.ensureActiveDocument()
-  const threadId = await options.ensureDesignThreadForWorkspace(options.workspaceRoot, documentId)
-  if (!threadId) return { status: 'missing-thread' }
-
-  const prepared = prepareDesignFromCodeTurn({
-    sourceRelativePath: source,
-    workspaceRoot: options.workspaceRoot,
-    documentId,
-    title: options.title,
-    designState: options.designState,
-    createArtifactId: options.createArtifactId,
-    now: options.now
-  })
-  options.designState.upsertArtifact(prepared.artifact)
-
-  const model = options.designState.assistantModel.trim()
-  const providerId = options.designState.assistantProviderId.trim() || options.resolveProviderId(model)
-  const ok = await options.sendMessage(prepared.prompt, 'agent', {
-    displayText: options.displayText,
-    ...(model ? { model } : {}),
-    ...(providerId ? { providerId } : {})
-  })
-
-  return ok
-    ? { status: 'sent', artifactId: prepared.artifact.id, threadId }
-    : { status: 'send-failed', artifactId: prepared.artifact.id, threadId }
 }

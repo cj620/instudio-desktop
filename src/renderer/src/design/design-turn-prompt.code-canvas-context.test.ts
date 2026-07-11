@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildCodeCanvasTurnPrompt,
-  buildDesignFromCodePrompt,
   buildDesignImageNodePrompt,
   buildDesignTurnPrompt,
   buildParallelDesignPagesPrompt,
@@ -281,18 +280,6 @@ describe("design turn prompt code canvas and context guidance", () => {
       expect(prompt).toContain(
         'do not guess or reconstruct a path from the shape name, position, or any other field'
       )
-    })
-    it('carries app target sizing into code-to-design prompts', () => {
-      const prompt = buildDesignFromCodePrompt({
-        sourceRelativePath: 'src/App.tsx',
-        artifactRelativePath: '.kun-design/doc/reverse/v1.html',
-        workspaceRoot: '/workspace',
-        designContext: { designTarget: 'app' }
-      })
-  
-      expect(prompt).toContain('Design target: App')
-      expect(prompt).toContain('390x844 phone portrait')
-      expect(prompt).toContain('- Target: App')
     })
     it('carries default web target sizing into image-node prompts', () => {
       const prompt = buildDesignImageNodePrompt({

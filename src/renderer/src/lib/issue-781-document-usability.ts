@@ -15,18 +15,12 @@ const LABELS = {
   zh: {
     pinTab: '固定标签',
     unpinTab: '取消固定标签',
-    closeOtherTabs: '关闭其他标签页',
-    read: '阅读',
-    exitRead: '退出阅读',
-    expandRead: '放大阅读'
+    closeOtherTabs: '关闭其他标签页'
   },
   en: {
     pinTab: 'Pin tab',
     unpinTab: 'Unpin tab',
-    closeOtherTabs: 'Close other tabs',
-    read: 'Read',
-    exitRead: 'Exit reading',
-    expandRead: 'Expand reading'
+    closeOtherTabs: 'Close other tabs'
   }
 } as const
 
@@ -116,18 +110,6 @@ function injectStyle(): void {
       text-align: left;
     }
     .kun-issue781-menu button:hover { background: var(--ds-hover); }
-    .ds-code-sidebar.kun-issue781-reader-mode {
-      position: fixed;
-      inset: 18px;
-      z-index: 9998;
-      width: auto !important;
-      min-width: 0 !important;
-      border: 1px solid var(--ds-border);
-      border-radius: 18px;
-      background: var(--ds-main);
-      box-shadow: 0 28px 80px rgba(15, 23, 42, 0.36);
-      overflow: hidden;
-    }
   `
   document.head.appendChild(style)
   trackCleanup(() => {
@@ -349,42 +331,6 @@ function enhanceScrollMemory(): void {
   })
 }
 
-function setReadingMode(enabled: boolean): void {
-  const sidebar = document.querySelector('.ds-code-sidebar')
-  if (!(sidebar instanceof HTMLElement)) return
-  sidebar.classList.toggle('kun-issue781-reader-mode', enabled)
-  const button = sidebar.querySelector('.kun-issue781-expand-button')
-  if (button instanceof HTMLButtonElement) {
-    const title = enabled ? label('exitRead') : label('expandRead')
-    button.textContent = enabled ? label('exitRead') : label('read')
-    button.title = title
-    button.setAttribute('aria-label', title)
-  }
-}
-
-function enhanceReadingButton(): void {
-  const actions = document.querySelector('.ds-code-sidebar-actions')
-  if (!(actions instanceof HTMLElement) || actions.querySelector('.kun-issue781-expand-button')) return
-  const button = document.createElement('button')
-  button.type = 'button'
-  button.className = 'kun-issue781-expand-button ds-code-sidebar-icon-button'
-  button.title = label('expandRead')
-  button.setAttribute('aria-label', label('expandRead'))
-  button.textContent = label('read')
-  const onClick = (event: MouseEvent): void => {
-    event.preventDefault()
-    event.stopPropagation()
-    const sidebar = document.querySelector('.ds-code-sidebar')
-    setReadingMode(!(sidebar instanceof HTMLElement && sidebar.classList.contains('kun-issue781-reader-mode')))
-  }
-  button.addEventListener('click', onClick)
-  actions.insertBefore(button, actions.firstChild)
-  trackCleanup(() => {
-    button.removeEventListener('click', onClick)
-    button.remove()
-  })
-}
-
 function scheduleScan(): void {
   if (scanTimer !== null) return
   scanTimer = window.setTimeout(() => {
@@ -392,7 +338,6 @@ function scheduleScan(): void {
     scanRenderedOutput()
     enhancePreviewTabs()
     enhanceScrollMemory()
-    enhanceReadingButton()
   }, 120)
 }
 
@@ -410,10 +355,6 @@ function onDocumentClick(event: MouseEvent): void {
   }
 }
 
-function onDocumentKeyDown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') setReadingMode(false)
-}
-
 function onDocumentPointerDown(event: PointerEvent): void {
   if (menuEl && event.target instanceof Node && !menuEl.contains(event.target)) closeIssue781Menu()
 }
@@ -428,9 +369,6 @@ export function uninstallIssue781DocumentUsability(): void {
   observer?.disconnect()
   observer = null
   closeIssue781Menu()
-  document.querySelectorAll('.kun-issue781-reader-mode').forEach((element) => {
-    element.classList.remove('kun-issue781-reader-mode')
-  })
   document.querySelectorAll('.kun-issue781-pinned').forEach((element) => {
     element.classList.remove('kun-issue781-pinned')
   })
@@ -448,13 +386,10 @@ export function installIssue781DocumentUsability(): () => void {
   scanRenderedOutput()
   enhancePreviewTabs()
   enhanceScrollMemory()
-  enhanceReadingButton()
   document.addEventListener('click', onDocumentClick, true)
-  document.addEventListener('keydown', onDocumentKeyDown)
   document.addEventListener('pointerdown', onDocumentPointerDown, true)
   trackCleanup(() => {
     document.removeEventListener('click', onDocumentClick, true)
-    document.removeEventListener('keydown', onDocumentKeyDown)
     document.removeEventListener('pointerdown', onDocumentPointerDown, true)
   })
   observer = new MutationObserver(() => {

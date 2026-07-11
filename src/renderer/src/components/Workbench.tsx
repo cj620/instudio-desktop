@@ -320,7 +320,6 @@ export function Workbench(): ReactElement {
     implementDesignInCode,
     openDesignMode,
     sendCodeCanvasPrompt,
-    sendDesignFromCode,
     sendDesignPrompt,
     switchDesignThread
   } = useWorkbenchDesignAgentRuntime({
@@ -545,8 +544,7 @@ export function Workbench(): ReactElement {
       openTargets: openFilePreviewTargets,
       workspaceRoot,
       onSelectTarget: openWorkspaceFilePreviewTarget,
-      onCloseTarget: closeWorkspaceFilePreviewTarget,
-      onRedesign: sendDesignFromCode
+      onCloseTarget: closeWorkspaceFilePreviewTarget
     }
   })
 
