@@ -72,7 +72,7 @@
 
 ## 7. Hybrid thread persistence
 
-- [ ] 7.1 Add golden existing-data fixtures covering SQLite index, JSONL history,
+- [x] 7.1 Add golden existing-data fixtures covering SQLite index, JSONL history,
   legacy threads, backfill, archive/search, and usage recovery.
 - [ ] 7.2 Extract thread index repository and query/summary mapping.
 - [ ] 7.3 Extract thread document/legacy readers and recovery precedence.

@@ -97,6 +97,31 @@ describe('HybridThreadStore', () => {
     })
   })
 
+  it('opens legacy thread.json, preserves archive search, and accepts later JSONL writes', async () => {
+    const legacy = createThreadRecord({
+      id: 'thr_legacy_archived',
+      title: 'Legacy archive fixture',
+      workspace: '/tmp/legacy',
+      model: 'deepseek-chat',
+      createdAt: '2025-01-01T00:00:00.000Z'
+    })
+    const archived = { ...legacy, status: 'archived' as const, updatedAt: '2025-01-02T00:00:00.000Z' }
+    const threadDir = join(dataDir, 'threads', legacy.id)
+    await mkdir(threadDir, { recursive: true })
+    await writeFile(join(threadDir, 'thread.json'), JSON.stringify(archived), 'utf8')
+
+    const { threadStore } = await createHybridStores()
+    await threadStore.waitForBackfill()
+    expect((await threadStore.list({ search: 'Legacy archive', includeArchived: true })).map((item) => item.id))
+      .toEqual([legacy.id])
+    expect((await threadStore.list({ archivedOnly: true })).map((item) => item.id)).toEqual([legacy.id])
+
+    await threadStore.upsert({ ...archived, title: 'Legacy archive updated', updatedAt: '2025-01-03T00:00:00.000Z' })
+    const metadata = await readFile(join(threadDir, 'metadata.jsonl'), 'utf8')
+    expect(metadata).toContain('Legacy archive updated')
+    expect((await threadStore.get(legacy.id))?.title).toBe('Legacy archive updated')
+  })
+
   it('indexes event high water and usage events as they are appended', async () => {
     if (!sqliteAvailable) return
     const { threadStore, sessionStore } = await createHybridStores()
