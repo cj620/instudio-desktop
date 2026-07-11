@@ -23,6 +23,7 @@ import {
   type ThreadRow
 } from './hybrid-thread-index-mapping.js'
 import { HybridThreadIndexRepository } from './hybrid-thread-index.js'
+import { HybridThreadBackfillCoordinator } from './hybrid-thread-backfill.js'
 
 type UsageRuntimeEvent = Extract<RuntimeEvent, { kind: 'usage' }>
 
@@ -46,7 +47,7 @@ export class HybridThreadStore implements ThreadStore {
   private readonly nowIso: () => string
   private readonly readyPromise: Promise<void>
   private readonly metadataQueues = new Map<string, Promise<void>>()
-  private backfillPromise: Promise<void> | null = null
+  private backfill: HybridThreadBackfillCoordinator<UsageRuntimeEvent> | null = null
   private db: BetterSqliteDatabase | null = null
   private index: HybridThreadIndexRepository | null = null
   // Prepared-statement cache for the per-event hot paths; better-sqlite3
@@ -80,7 +81,7 @@ export class HybridThreadStore implements ThreadStore {
 
   async waitForBackfill(): Promise<void> {
     await this.ready()
-    await this.backfillPromise
+    await this.backfill?.wait()
   }
 
   async list(options: ThreadStoreListOptions = {}): Promise<ThreadSummary[]> {
@@ -271,7 +272,24 @@ export class HybridThreadStore implements ThreadStore {
         metadataPath: this.metadataPath(threadId), messagesPath: this.messagesPath(threadId),
         eventsPath: this.eventsPath(threadId)
       }), warnSqlite)
-      this.startBackfill()
+      this.backfill = new HybridThreadBackfillCoordinator({
+        indexedRows: () => this.db!.prepare('SELECT id, usage_backfilled FROM threads').all() as Array<{ id: string; usage_backfilled?: number }>,
+        filesystemThreadIds: () => this.threadIdsFromFilesystem(),
+        readMissingThread: async (threadId) => Boolean(await this.readThreadFromDisk(threadId)),
+        scanEvents: (threadId) => this.scanEventsForBackfill(threadId),
+        upsertMissing: async (threadId, highWater) => {
+          const thread = await this.readThreadFromDisk(threadId)
+          if (thread) this.upsertIndexBestEffort({ ...this.indexRecordForThread(thread), eventSeqHighWater: highWater })
+        },
+        noteExistingHighWater: (threadId, highWater) => this.noteEventHighWaterSync(threadId, highWater),
+        insertUsage: (threadId, usage) => this.insertUsageEventsChunked(threadId, usage),
+        markUsageBackfilled: (threadId) => this.markUsageBackfilled(threadId),
+        threadDirectoryExists: (threadId) => pathExists(this.threadDir(threadId)),
+        deleteIndexRow: (threadId) => this.deleteIndexRow(threadId),
+        yieldToEventLoop,
+        warn: warnSqlite
+      })
+      this.backfill.start()
     } catch (error) {
       warnSqlite('initialize', error)
       try {
@@ -281,6 +299,7 @@ export class HybridThreadStore implements ThreadStore {
       }
       this.db = null
       this.index = null
+      this.backfill = null
     }
   }
 
@@ -353,54 +372,6 @@ export class HybridThreadStore implements ThreadStore {
       this.statementCache.set(sql, statement)
     }
     return statement
-  }
-
-  private startBackfill(): void {
-    if (this.backfillPromise) return
-    this.backfillPromise = this.backfill().catch((error) => {
-      warnSqlite('background backfill', error)
-    })
-  }
-
-  private async backfill(): Promise<void> {
-    if (!this.db) return
-    const rows = this.db
-      .prepare('SELECT id, usage_backfilled FROM threads')
-      .all() as Array<{ id: string; usage_backfilled?: number }>
-    const indexed = new Map(rows.map((row) => [row.id, row.usage_backfilled === 1]))
-    for (const threadId of await this.threadIdsFromFilesystem()) {
-      const usageBackfilled = indexed.get(threadId)
-      // Threads marked as backfilled never need their events.jsonl re-read;
-      // without the marker every startup re-scanned the full event history
-      // of threads that simply have no usage events.
-      if (usageBackfilled === true) continue
-      if (usageBackfilled === undefined) {
-        const thread = await this.readThreadFromDisk(threadId)
-        if (!thread) continue
-        const scan = await this.scanEventsForBackfill(threadId)
-        this.upsertIndexBestEffort({
-          ...this.indexRecordForThread(thread),
-          eventSeqHighWater: scan.highWater
-        })
-        await this.insertUsageEventsChunked(threadId, scan.usage)
-      } else {
-        const scan = await this.scanEventsForBackfill(threadId)
-        this.noteEventHighWaterSync(threadId, scan.highWater)
-        await this.insertUsageEventsChunked(threadId, scan.usage)
-      }
-      this.markUsageBackfilled(threadId)
-      await yieldToEventLoop()
-    }
-
-    try {
-      for (const row of rows) {
-        if (!(await pathExists(this.threadDir(row.id)))) {
-          this.deleteIndexRow(row.id)
-        }
-      }
-    } catch (error) {
-      warnSqlite('backfill cleanup', error)
-    }
   }
 
   /** Single pass over events.jsonl: high-water mark plus usage events. */
