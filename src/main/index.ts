@@ -5,8 +5,12 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   Notification,
   powerSaveBlocker,
+  protocol,
+  session,
+  systemPreferences,
   Tray,
   type ContextMenuParams,
   type MenuItemConstructorOptions
@@ -27,8 +31,9 @@ import { buildTrayMenuTemplate, parseTrayThreads, type TrayThreadSummary } from 
 import { configureLinuxWaylandImeSwitches } from './app-command-line'
 import { configureAppIdentity } from './app-identity'
 import { shouldStartHidden, syncLoginItemSettings } from './desktop-behavior'
-import { resolveLogDirectory, resolvePreloadPath } from './main-paths'
+import { resolveLogDirectory, resolveNamedPreloadPath, resolvePreloadPath } from './main-paths'
 import { runLegacyKunDataMigration } from './legacy-data-migration'
+import { LegacyProviderSettingsMigrationCoordinator } from './legacy-provider-settings-migration'
 import {
   applyKunRuntimePatch,
   kunSettingsEnvelope,
@@ -121,8 +126,30 @@ import {
   classifyManagedRuntimeHotApplyResponse
 } from './runtime/kun-runtime-config-service'
 import { ManagedRuntimeShutdownCoordinator } from './runtime/managed-runtime-shutdown-coordinator'
+import {
+  registerKunExtensionProtocol,
+  registerKunExtensionSchemeAsPrivileged
+} from './extensions/extension-resource-protocol'
+import { ExtensionDescriptorResolver } from './extensions/extension-descriptor-resolver'
+import { ExtensionViewSessionRegistry } from './extensions/extension-view-sessions'
+import { ExtensionViewProtocolRegistry } from './extensions/extension-view-protocol-registry'
+import { installWebviewSecurityGuards } from './extensions/extension-webview-security'
+import {
+  ExtensionConsentTokenService,
+  ProtectedExtensionActionService
+} from './extensions/extension-consent-service'
+import { ProtectedCredentialSurfaceController } from './extensions/protected-credential-surface'
+import { ExtensionContentScriptController } from './extensions/extension-content-script-controller'
+import { createExtensionWorkbenchEnvironment } from './extensions/extension-workbench-environment'
+import {
+  registerExtensionIpcHandlers,
+  startExtensionNotificationPump,
+  startExtensionSecretRevealConsentPump,
+  type RegisterExtensionIpcHandlersOptions
+} from './ipc/register-extension-ipc-handlers'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+registerKunExtensionSchemeAsPrivileged(protocol)
 // 品牌升级为 Kun 后仍保留旧 AppUserModelId:它必须和 electron-builder
 // 的 appId 一致才能让 Windows 通知 / 任务栏分组在升级前后连续,而
 // appId 因为 NSIS 升级 GUID 与 macOS 更新签名校验的原因永远不改。
@@ -192,7 +219,7 @@ function runtimeJsonError(code: string, message: string): Error {
 traceStartup('main module evaluated')
 
 if (runningClawScheduleMcpServer && process.platform === 'darwin') {
-  app.dock.hide()
+  app.dock?.hide()
 }
 
 // 在最早的阶段把 app 名称、AppUserModelId 都设好。
@@ -239,6 +266,9 @@ let trayMenu: Menu | null = null
 let trayMenuOpenPromise: Promise<void> | null = null
 let closeWindowPromptOpen = false
 let checkpointCleanupTimer: ReturnType<typeof setInterval> | null = null
+const extensionViewSessions = new ExtensionViewSessionRegistry()
+let protectedCredentialSurface: ProtectedCredentialSurfaceController | null = null
+let bindExtensionMainWindow: ((window: BrowserWindow) => void) | undefined
 
 type GuiUpdaterModule = typeof import('./gui-updater')
 
@@ -368,35 +398,24 @@ async function readGuiUpdateState(): Promise<GuiUpdateState> {
 }
 
 
-function installDevPreviewWebviewGuards(): void {
-  app.on('web-contents-created', (_, contents) => {
-    contents.on('will-attach-webview', (event, webPreferences, params) => {
-      const src = typeof params.src === 'string' ? params.src : ''
-      // Prototype embeds are file:// pages the renderer authorized through
-      // write:authorize-prototype right before attaching.
-      if (!isAllowedDevPreviewUrl(src) && !isAuthorizedPrototypeFileUrl(src)) {
-        event.preventDefault()
-        return
-      }
-
-      delete webPreferences.preload
-      delete (webPreferences as { preloadURL?: string }).preloadURL
-      webPreferences.nodeIntegration = false
-      webPreferences.contextIsolation = true
-      webPreferences.sandbox = true
-      webPreferences.webSecurity = true
-      webPreferences.allowRunningInsecureContent = false
-    })
-
-    contents.on('will-navigate', (event, navigationUrl) => {
-      if (contents.getType() !== 'webview') return
-      if (!isAllowedDevPreviewUrl(navigationUrl)) event.preventDefault()
-    })
-
-    contents.setWindowOpenHandler(({ url }) => {
-      if (contents.getType() !== 'webview') return { action: 'allow' }
-      return isAllowedDevPreviewUrl(url) ? { action: 'allow' } : { action: 'deny' }
-    })
+function installDevPreviewWebviewGuards(options: {
+  viewProtocols: ExtensionViewProtocolRegistry
+}): void {
+  installWebviewSecurityGuards({
+    app,
+    sessions: extensionViewSessions,
+    extensionPreloadPath: resolveNamedPreloadPath(__dirname, 'extension-view'),
+    assertExtensionPartitionPrepared: (record) => options.viewProtocols.assertPrepared(record),
+    isPreparedExtensionNavigation: (contents, url) =>
+      options.viewProtocols.isPreparedInitialNavigation(contents.session.protocol, url),
+    isTrustedWorkbench: (contents) => Boolean(
+      mainWindow && !mainWindow.isDestroyed() && contents.id === mainWindow.webContents.id
+    ),
+    isAllowedDevPreviewUrl,
+    isAuthorizedPrototypeFileUrl,
+    onDenied: ({ code }) => {
+      logWarn('extension-webview', 'Denied extension Webview operation.', { code })
+    }
   })
 }
 
@@ -1076,6 +1095,7 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
       additionalArguments: [`--kun-home-dir=${homedir()}`]
     }
   })
+  bindExtensionMainWindow?.(mainWindow)
   if (usesDesktopTitleBar) {
     mainWindow.setMenu(null)
     mainWindow.setMenuBarVisibility(false)
@@ -1442,19 +1462,92 @@ app.whenReady().then(async () => {
   traceStartup('app.whenReady:start')
   if (!gotSingleInstanceLock) return
 
-  traceStartup('install webview guards:start')
-  installDevPreviewWebviewGuards()
-  traceStartup('install webview guards:done')
-
   if (process.platform === 'darwin') {
     const macDockIcon = createAppIcon(kunMacLogoPng)
-    app.dock.setIcon(macDockIcon.isEmpty() ? appIcon : macDockIcon)
+    app.dock?.setIcon(macDockIcon.isEmpty() ? appIcon : macDockIcon)
   }
 
-  store = new JsonSettingsStore(app.getPath('userData'))
+  store = new JsonSettingsStore(app.getPath('userData'), {
+    credentialMigration: new LegacyProviderSettingsMigrationCoordinator()
+  })
   traceStartup('settings load:start')
   const initial = await store.load()
   traceStartup('settings load:done')
+  const extensionDescriptors = new ExtensionDescriptorResolver(async (path, method, body) => {
+    const settings = await store.load()
+    return runtimeRequest(settings, path, { method, body })
+  })
+  const registerExtensionProtocol = (targetProtocol: typeof protocol): void => {
+    registerKunExtensionProtocol({
+      protocol: targetProtocol,
+      resolveDescriptor: (extensionId) => extensionDescriptors.resolveResourceDescriptor(extensionId),
+      onDenied: ({ extensionId, code }) => {
+        logWarn('extension-protocol', 'Denied extension resource request.', { extensionId, code })
+      }
+    })
+  }
+  registerExtensionProtocol(protocol)
+
+  const extensionViewProtocols = new ExtensionViewProtocolRegistry(
+    (partition) => session.fromPartition(partition).protocol,
+    ({ extensionId, code, sessionId }) => {
+      logWarn('extension-protocol', 'Denied isolated View resource request.', {
+        extensionId,
+        code,
+        sessionId
+      })
+    }
+  )
+
+  traceStartup('install webview guards:start')
+  installDevPreviewWebviewGuards({
+    viewProtocols: extensionViewProtocols
+  })
+  traceStartup('install webview guards:done')
+  const extensionConsentTokens = new ExtensionConsentTokenService()
+  const protectedExtensionActions = new ProtectedExtensionActionService(
+    extensionConsentTokens,
+    async (binding, copy) => {
+      const detail = [
+        `Extension: ${binding.extensionId} ${binding.extensionVersion}`,
+        `Operation: ${binding.operationKind}`,
+        binding.workspaceRoot ? `Workspace: ${binding.workspaceRoot}` : undefined,
+        copy.detail
+      ].filter((value): value is string => Boolean(value)).join('\n\n')
+      const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined
+      const dialogOptions = {
+        type: 'warning' as const,
+        title: copy.title,
+        message: copy.message,
+        detail,
+        buttons: ['Continue', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+        normalizeAccessKeys: true
+      }
+      const result = parent
+        ? await dialog.showMessageBox(parent, dialogOptions)
+        : await dialog.showMessageBox(dialogOptions)
+      return result.response === 0
+    }
+  )
+  protectedCredentialSurface = new ProtectedCredentialSurfaceController(
+    resolveNamedPreloadPath(__dirname, 'extension-protected-surface')
+  )
+  protectedCredentialSurface.register()
+  const extensionContentScripts = new ExtensionContentScriptController(extensionDescriptors, {
+    onDiagnostic: (diagnostic) => {
+      logWarn('extension-content-script', diagnostic.message, {
+        code: diagnostic.code,
+        extensionId: diagnostic.extensionId,
+        extensionVersion: diagnostic.extensionVersion,
+        contributionId: diagnostic.contributionId,
+        workspaceScope: diagnostic.workspaceScope,
+        at: diagnostic.at
+      })
+    }
+  })
   setKunUnexpectedExitHandler(handleUnexpectedKunExit)
   appBehavior = initial.appBehavior
   syncLoginItemSettings(initial)
@@ -1512,6 +1605,7 @@ app.whenReady().then(async () => {
   syncWeixinBridgeRuntime(initial)
 
   traceStartup('ipc registration:start')
+  let publishExtensionWorkbenchEnvironmentChanged = async (): Promise<void> => undefined
   const applySettingsPatch = async (partial: AppSettingsPatch): Promise<AppSettingsV1> => {
     const prev = await store.load()
     const effectivePartial = preserveRuntimeTokenForFullSettingsSnapshot(prev, partial)
@@ -1569,6 +1663,11 @@ app.whenReady().then(async () => {
     syncLoginItemSettings(saved)
     syncTray(saved)
     syncCheckpointCleanupTimer(saved)
+    void publishExtensionWorkbenchEnvironmentChanged().catch((error) => {
+      logWarn('extension-workbench', 'Failed to publish extension workbench environment.', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    })
     return saved
   }
 
@@ -1579,7 +1678,9 @@ app.whenReady().then(async () => {
   }
 
   const saveSettingsPatch = async (partial: AppSettingsPatch): Promise<AppSettingsV1> => {
-    return store.patch(preserveRuntimeTokenForFullSettingsSnapshot(await store.load(), partial))
+    const saved = await store.patch(preserveRuntimeTokenForFullSettingsSnapshot(await store.load(), partial))
+    void publishExtensionWorkbenchEnvironmentChanged().catch(() => undefined)
+    return saved
   }
 
   registerAppIpcHandlers({
@@ -1587,9 +1688,9 @@ app.whenReady().then(async () => {
     getMainWindow: () => mainWindow,
     applySettingsPatch,
     saveSettingsPatch,
-    runtimeRequest: async (path, method, body) => {
+    runtimeRequest: async (path, method, body, headers) => {
       const settings = await store.load()
-      return runtimeRequest(settings, path, { method, body })
+      return runtimeRequest(settings, path, { method, body, headers })
     },
     restartRuntime: async () => {
       const settings = await store.load()
@@ -1614,6 +1715,68 @@ app.whenReady().then(async () => {
     loadGuiUpdaterModule,
     resolveLogDirectory: () => resolveLogDirectory(app),
     logError
+  })
+  const extensionIpcOptions: RegisterExtensionIpcHandlersOptions = {
+    getMainWindow: () => mainWindow,
+    runtimeRequest: async (path, method, body, headers) => {
+      const settings = await store.load()
+      return runtimeRequest(settings, path, { method, body, headers })
+    },
+    descriptors: extensionDescriptors,
+    viewSessions: extensionViewSessions,
+    viewProtocols: extensionViewProtocols,
+    protectedActions: protectedExtensionActions,
+    credentialSurface: protectedCredentialSurface,
+    contentScripts: extensionContentScripts,
+    getWorkbenchEnvironment: async () => {
+      const settings = await store.load()
+      let reducedMotion = false
+      try {
+        reducedMotion = systemPreferences.getAnimationSettings().prefersReducedMotion
+      } catch {
+        // Some Linux desktop environments do not expose animation settings.
+      }
+      return createExtensionWorkbenchEnvironment({
+        themePreference: settings.theme,
+        systemDark: nativeTheme.shouldUseDarkColors,
+        highContrast: nativeTheme.shouldUseHighContrastColors,
+        zoomFactor: mainWindow && !mainWindow.isDestroyed()
+          ? mainWindow.webContents.getZoomFactor()
+          : 1,
+        reducedMotion,
+        locale: settings.locale
+      })
+    },
+    logError
+  }
+  const extensionIpcRegistration = registerExtensionIpcHandlers(extensionIpcOptions)
+  publishExtensionWorkbenchEnvironmentChanged = () =>
+    extensionIpcRegistration.publishWorkbenchEnvironmentChanged()
+  const onNativeThemeUpdated = (): void => {
+    void publishExtensionWorkbenchEnvironmentChanged().catch(() => undefined)
+  }
+  const onWorkbenchZoomChanged = (): void => {
+    void publishExtensionWorkbenchEnvironmentChanged().catch(() => undefined)
+  }
+  bindExtensionMainWindow = (window) => {
+    extensionIpcRegistration.bindMainWindow(window)
+    window.webContents.on('zoom-changed', onWorkbenchZoomChanged)
+  }
+  nativeTheme.on('updated', onNativeThemeUpdated)
+  void publishExtensionWorkbenchEnvironmentChanged().catch(() => undefined)
+  const stopSecretRevealConsentPump = startExtensionSecretRevealConsentPump(
+    extensionIpcOptions
+  )
+  const stopExtensionNotificationPump = startExtensionNotificationPump(
+    extensionIpcOptions
+  )
+  app.once('before-quit', () => {
+    stopSecretRevealConsentPump()
+    stopExtensionNotificationPump()
+    extensionIpcRegistration.dispose()
+    bindExtensionMainWindow = undefined
+    nativeTheme.removeListener('updated', onNativeThemeUpdated)
+    mainWindow?.webContents.removeListener('zoom-changed', onWorkbenchZoomChanged)
   })
 
   void loadGuiUpdaterModule().catch((error) => {
@@ -1677,6 +1840,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', (event) => {
   runtimeShutdown.requestQuit()
+  protectedCredentialSurface?.dispose()
   stopRuntimeWatchdog()
   stopCheckpointCleanupTimer()
   if (runtimeShutdown.isStoppedForQuit) return

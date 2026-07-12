@@ -25,7 +25,7 @@
   <a href="https://github.com/KunAgent/Kun/releases"><img src="https://img.shields.io/github/v/release/KunAgent/Kun?label=release" alt="GitHub release"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue" alt="License: PolyForm Noncommercial 1.0.0"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="Platform">
-  <img src="https://img.shields.io/badge/Electron-34-47848F?logo=electron&logoColor=white" alt="Electron 34">
+  <img src="https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white" alt="Electron 43">
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React 19">
 </p>
 
@@ -195,6 +195,7 @@ npm install --registry=https://registry.npmmirror.com
 
 | 文档 | 内容 |
 | --- | --- |
+| [docs/extensions/README.md](docs/extensions/README.md) | Kun Extension 开放平台：工作台应用、Agent、工具、自定义模型 Provider、账号、打包与版本兼容 |
 | [kun/README.zh-CN.md](kun/README.zh-CN.md) | Kun 运行时、CLI、环境变量、HTTP API |
 | [docs/kun-architecture.md](docs/kun-architecture.md) | 单运行时架构与 GUI 集成 |
 | [docs/kun-cache-optimization.md](docs/kun-cache-optimization.md) | 缓存优化、token economy 与可观测性 |

@@ -55,7 +55,7 @@ export class CapabilityRegistry {
     this.replaceProviders(providers)
   }
 
-  registerProvider(provider: CapabilityToolProvider): void {
+  registerProvider(provider: CapabilityToolProvider): () => void {
     if (this.providers.has(provider.id)) {
       throw new Error(`duplicate tool provider: ${provider.id}`)
     }
@@ -66,6 +66,18 @@ export class CapabilityRegistry {
       }
       this.tools.set(tool.name, { provider: providerPolicy(provider), tool })
     }
+    return () => this.unregisterProvider(provider.id)
+  }
+
+  replaceProvider(provider: CapabilityToolProvider): void {
+    const providers = [...this.providers.values()].filter((candidate) => candidate.id !== provider.id)
+    this.replaceProviders([...providers, provider])
+  }
+
+  unregisterProvider(providerId: string): boolean {
+    if (!this.providers.has(providerId)) return false
+    this.replaceProviders([...this.providers.values()].filter((provider) => provider.id !== providerId))
+    return true
   }
 
   replaceProviders(providers: readonly CapabilityToolProvider[]): void {

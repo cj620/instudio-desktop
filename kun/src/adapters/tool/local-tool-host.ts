@@ -83,6 +83,8 @@ export type LocalToolHostOptions = {
    * call ids such as `call_1` are isolated by turnId/toolName/argsHash.
    */
   operationJournal?: ToolOperationJournal
+  /** Lazy runtime preparation hook (for example, activating declared extension providers). */
+  prepare?: (context?: ToolHostContext) => Promise<void> | void
 }
 
 /**
@@ -106,6 +108,7 @@ export class LocalToolHost implements ToolHost {
   private hooks: readonly ResolvedHook[]
   private readonly readTracker: ReadTracker
   private readonly operationJournal: ToolOperationJournal
+  private prepare?: (context?: ToolHostContext) => Promise<void> | void
 
   constructor(options: LocalToolHostOptions) {
     this.registry = options.registry ?? CapabilityRegistry.fromLocalTools(options.tools ?? [])
@@ -113,17 +116,26 @@ export class LocalToolHost implements ToolHost {
     this.hooks = options.hooks ?? []
     this.readTracker = new ReadTracker(normalizeReadTrackerOptions(options.readTracker))
     this.operationJournal = options.operationJournal ?? new ToolOperationJournal()
+    this.prepare = options.prepare
   }
 
   replaceRuntimeComponents(input: {
     registry?: CapabilityRegistry
     hooks?: readonly ResolvedHook[]
+    prepare?: (context?: ToolHostContext) => Promise<void> | void
   }): void {
     if (input.registry) this.registry = input.registry
     if (input.hooks) this.hooks = input.hooks
+    if (input.prepare) this.prepare = input.prepare
   }
 
   listTools(context?: ToolHostContext) {
+    const prepared = this.prepare?.(context)
+    if (prepared && typeof (prepared as PromiseLike<void>).then === 'function') {
+      return Promise.resolve(prepared).then(() => this.registry.listTools(context))
+    }
+    // Evaluate before Promise.resolve so existing callers retain synchronous
+    // catalog-drift validation when no lazy preparation is configured.
     return Promise.resolve(this.registry.listTools(context))
   }
 
@@ -136,6 +148,7 @@ export class LocalToolHost implements ToolHost {
     context: ToolHostContext,
     onUpdate?: (item: TurnItem) => Promise<void> | void
   ): Promise<ToolHostResult> {
+    await this.prepare?.(context)
     if (context.abortSignal.aborted) {
       throw new Error('tool call aborted before start')
     }
@@ -226,6 +239,31 @@ export class LocalToolHost implements ToolHost {
       toolName: activeCall.toolName,
       args: activeCall.arguments
     })
+    const priorOperation = this.operationJournal.get(operationIdentity)
+    if (priorOperation?.status === 'unknown') {
+      return {
+        item: this.errorToolResult(
+          context,
+          activeCall,
+          tool,
+          `Tool side-effect outcome is unknown and will not be retried automatically: ${priorOperation.reason}`,
+          'tool_outcome_unknown'
+        ),
+        approved: !needsApproval
+      }
+    }
+    if (priorOperation?.status === 'started') {
+      return {
+        item: this.errorToolResult(
+          context,
+          activeCall,
+          tool,
+          'An invocation with the same operation identity is still in progress.',
+          'tool_invocation_in_progress'
+        ),
+        approved: !needsApproval
+      }
+    }
     const replayed = this.operationJournal.getCompleted(operationIdentity)
     if (replayed) {
       return {
@@ -259,7 +297,11 @@ export class LocalToolHost implements ToolHost {
         this.operationJournal.unknown(operationIdentity, 'tool call aborted during execution')
         throw error
       }
-      this.operationJournal.fail(operationIdentity, error)
+      if (isUnknownOutcomeError(error)) {
+        this.operationJournal.unknown(operationIdentity, error instanceof Error ? error.message : String(error))
+      } else {
+        this.operationJournal.fail(operationIdentity, error)
+      }
       const message = error instanceof Error ? error.message : String(error)
       return {
         item: this.errorToolResult(context, activeCall, tool, message, 'tool_execution_failed'),
@@ -402,6 +444,10 @@ export class LocalToolHost implements ToolHost {
       ...(tool.requiresExplicitApproval ? { requiresExplicitApproval: true } : {})
     }
   }
+}
+
+function isUnknownOutcomeError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'unknownOutcome' in error && error.unknownOutcome === true)
 }
 
 const ARTIFACT_OUTPUT_THRESHOLD_BYTES = 128 * 1024

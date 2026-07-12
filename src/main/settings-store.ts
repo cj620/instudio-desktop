@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { atomicWriteFile } from '../../kun/src/adapters/file/atomic-write.js'
@@ -45,6 +45,22 @@ import {
 } from '../shared/app-settings'
 
 export type { AppSettingsV1 }
+
+export type SettingsCredentialMigrationResult = {
+  runtimeSettings: AppSettingsV1
+  persistedSettings: AppSettingsV1
+  sourceIdsToCommit: string[]
+  removedPlaintext: boolean
+  rollback: () => Promise<void>
+  commit: () => Promise<void>
+}
+
+export type SettingsCredentialMigration = {
+  prepare: (
+    settings: AppSettingsV1,
+    options?: { replaceCommitted?: boolean }
+  ) => Promise<SettingsCredentialMigrationResult>
+}
 
 // 数据默认根目录从 ~/.deepseekgui 升级为 ~/.kun。老安装的既有目录由
 // legacy-data-migration.ts 在启动期搬迁并留兼容链接;settings 里存的旧
@@ -341,6 +357,13 @@ function normalizeDisabledSkillIds(value: unknown): string[] {
     .filter(Boolean))]
 }
 
+function hasLegacyProviderPlaintext(settings: AppSettingsV1): boolean {
+  const provider = settings.provider
+  if (provider.apiKey.trim()) return true
+  if (provider.providers.some((entry) => entry.apiKey.trim())) return true
+  return getKunRuntimeSettings(settings).apiKey.trim().length > 0
+}
+
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null
 }
@@ -364,6 +387,27 @@ async function writeInvalidSettingsBackup(path: string, raw: string): Promise<st
     await writeFile(backupPath, raw, 'utf8')
     return backupPath
   } catch {
+    return null
+  }
+}
+
+async function writeLegacyCredentialSettingsBackup(path: string, raw: string): Promise<string | null> {
+  const backupPath = join(dirname(path), `${basename(path, '.json')}.pre-extension-credential-migration.json`)
+  try {
+    await writeFile(backupPath, raw, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+    await chmod(backupPath, 0o600).catch(() => undefined)
+    return backupPath
+  } catch (error) {
+    if (isErrnoException(error) && error.code === 'EEXIST') {
+      try {
+        const metadata = await lstat(backupPath)
+        if (!metadata.isFile() || metadata.isSymbolicLink()) return null
+        await chmod(backupPath, 0o600)
+        return backupPath
+      } catch {
+        return null
+      }
+    }
     return null
   }
 }
@@ -435,7 +479,10 @@ export class JsonSettingsStore {
   private path: string
   private cache: AppSettingsV1 | null = null
 
-  constructor(userDataPath: string) {
+  constructor(
+    userDataPath: string,
+    private readonly options: { credentialMigration?: SettingsCredentialMigration } = {}
+  ) {
     this.path = join(userDataPath, SETTINGS_FILE_NAME)
   }
 
@@ -474,19 +521,83 @@ export class JsonSettingsStore {
 
     const normalized = normalizeStoredSettings(buildMergedSettings(parsed as Partial<AppSettingsV1>))
     const prepared = await prepareSettingsDirectories(normalized)
-    this.cache = prepared
-    if (sourcePath !== this.path || prepared.workspaceRoot !== normalized.workspaceRoot) {
-      await this.save(prepared)
+    if (this.options.credentialMigration && hasLegacyProviderPlaintext(prepared)) {
+      const backupPath = await writeLegacyCredentialSettingsBackup(sourcePath, raw)
+      if (!backupPath) {
+        console.warn('[kun-gui] Legacy credential migration deferred because the settings backup could not be written.')
+        this.cache = prepared
+        return this.cache
+      }
     }
+    const migration = await this.prepareCredentialMigration(prepared, false)
+    if (migration === undefined) {
+      this.cache = prepared
+      if (sourcePath !== this.path || prepared.workspaceRoot !== normalized.workspaceRoot) {
+        await this.save(prepared)
+      }
+      return this.cache
+    }
+    if (migration === null) {
+      this.cache = prepared
+      return this.cache
+    }
+
+    const shouldPersist = sourcePath !== this.path ||
+      prepared.workspaceRoot !== normalized.workspaceRoot ||
+      migration.removedPlaintext
+    if (shouldPersist) {
+      try {
+        await this.persistSettings(migration.persistedSettings)
+      } catch (error) {
+        await migration.rollback().catch(() => undefined)
+        console.warn('[kun-gui] Legacy credential migration settings commit failed; plaintext settings remain authoritative.', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+        this.cache = prepared
+        return this.cache
+      }
+    }
+    await migration.commit().catch((error) => {
+      console.warn('[kun-gui] Legacy credential migration commit marker is pending recovery.', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    })
+    this.cache = migration.runtimeSettings
     return this.cache
   }
 
   async save(data: AppSettingsV1): Promise<void> {
     const normalized = normalizeStoredSettings(data)
     const prepared = await prepareSettingsDirectories(normalized)
-    this.cache = prepared
-    await mkdir(dirname(this.path), { recursive: true })
-    await atomicWriteFile(this.path, serializeSettingsForDisk(prepared))
+    if (this.options.credentialMigration && hasLegacyProviderPlaintext(prepared)) {
+      const currentRaw = await readFile(this.path, 'utf8').catch((error) => {
+        if (isErrnoException(error) && error.code === 'ENOENT') return serializeSettingsForDisk(prepared)
+        throw error
+      })
+      const backupPath = await writeLegacyCredentialSettingsBackup(this.path, currentRaw)
+      if (!backupPath) {
+        throw new Error('Failed to create the pre-migration settings backup; ordinary settings were not changed')
+      }
+    }
+    const migration = await this.prepareCredentialMigration(prepared, true)
+    if (migration === undefined) {
+      await this.persistSettings(prepared)
+      this.cache = prepared
+      return
+    }
+    if (migration === null) throw new Error('Legacy credential migration is unavailable')
+    try {
+      await this.persistSettings(migration.persistedSettings)
+    } catch (error) {
+      await migration.rollback().catch(() => undefined)
+      throw error
+    }
+    await migration.commit().catch((error) => {
+      console.warn('[kun-gui] Legacy credential migration commit marker is pending recovery.', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    })
+    this.cache = migration.runtimeSettings
   }
 
   async patch(partial: AppSettingsPatch): Promise<AppSettingsV1> {
@@ -518,7 +629,28 @@ export class JsonSettingsStore {
       guiUpdate: { ...cur.guiUpdate, ...(partial.guiUpdate ?? {}) }
     })
     await this.save(next)
-    return next
+    return this.cache ?? next
+  }
+
+  private async prepareCredentialMigration(
+    settings: AppSettingsV1,
+    replaceCommitted: boolean
+  ): Promise<SettingsCredentialMigrationResult | null | undefined> {
+    if (!this.options.credentialMigration) return undefined
+    try {
+      return await this.options.credentialMigration.prepare(settings, { replaceCommitted })
+    } catch (error) {
+      if (replaceCommitted) throw error
+      console.warn('[kun-gui] Legacy credential migration is unavailable; retaining compatibility settings.', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+      return null
+    }
+  }
+
+  private async persistSettings(settings: AppSettingsV1): Promise<void> {
+    await mkdir(dirname(this.path), { recursive: true })
+    await atomicWriteFile(this.path, serializeSettingsForDisk(settings))
   }
 }
 

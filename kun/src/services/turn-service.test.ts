@@ -553,7 +553,9 @@ describe('TurnService compact', () => {
       id: turnId,
       threadId,
       prompt: 'Initial task',
-      model: 'thread-model',
+      model: 'turn-model',
+      providerId: 'ext-manual-turn',
+      accountId: 'account-manual-turn',
       status: 'completed'
     })
     for (const item of items) {
@@ -565,7 +567,9 @@ describe('TurnService compact', () => {
         id: threadId,
         title: 'Manual compact',
         workspace: '/tmp/workspace',
-        model: 'thread-model'
+        model: 'thread-model',
+        providerId: 'ext-manual-thread',
+        accountId: 'account-manual-thread'
       }),
       turns: [finishTurn(turn, 'completed')]
     })
@@ -576,7 +580,11 @@ describe('TurnService compact', () => {
     })
 
     expect(model.requests).toHaveLength(1)
-    expect(model.requests[0].model).toBe('thread-model')
+    expect(model.requests[0]).toMatchObject({
+      model: 'turn-model',
+      providerId: 'ext-manual-turn',
+      accountId: 'account-manual-turn'
+    })
     // Compaction-mode turn uses the dedicated summarizer system prompt and
     // feeds the real conversation as messages (not a serialized transcript).
     expect(model.requests[0].systemPrompt).toBe(COMPACTION_SYSTEM_PROMPT)
@@ -645,7 +653,7 @@ describe('TurnService compact', () => {
       auto: false,
       summary: expect.stringContaining('MODEL SUMMARY kept the durable state.')
     })
-    expect(runtimeEvents.some((event) => event.kind === 'usage' && event.model === 'thread-model')).toBe(true)
+    expect(runtimeEvents.some((event) => event.kind === 'usage' && event.model === 'turn-model')).toBe(true)
   })
 
   it('retries manual compaction after a summary-window append without losing history', async () => {

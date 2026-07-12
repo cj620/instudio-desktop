@@ -189,6 +189,36 @@ describe('app-ipc-schemas', () => {
     ).toThrow(/runtime request path is not allowed/)
   })
 
+  it('keeps approval decisions off the generic runtime request bridge', () => {
+    expect(() =>
+      runtimeRequestPayloadSchema.parse({
+        path: '/v1/approvals/appr_1',
+        method: 'POST',
+        body: '{"decision":"allow"}'
+      })
+    ).toThrow(/runtime request path is not allowed/)
+  })
+
+  it('keeps extension workbench and configuration operations off the generic runtime bridge', () => {
+    for (const payload of [
+      { path: '/v1/extensions/workbench', method: 'GET' },
+      {
+        path: '/v1/extensions/configuration/snapshot',
+        method: 'POST',
+        body: '{"contributionIds":[]}'
+      },
+      {
+        path: '/v1/extensions/configuration',
+        method: 'PUT',
+        body: '{}'
+      }
+    ] as const) {
+      expect(() => runtimeRequestPayloadSchema.parse(payload)).toThrow(
+        /runtime request path is not allowed/
+      )
+    }
+  })
+
   it('accepts a valid settings patch for kun and write settings', () => {
     const payload = settingsPatchSchema.parse({
       theme: 'dark',

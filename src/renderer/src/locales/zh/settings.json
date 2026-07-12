@@ -4,6 +4,7 @@
   "back": "返回",
   "general": "通用",
   "providers": "供应商",
+  "extensions": "扩展设置",
   "agents": "AI 助手",
   "subagents": "子代理",
   "subagentsSettingsIntro": "集中管理可委派子代理的运行策略、模型、推理强度、提示词与能力范围。这些设置与工作台侧边栏保持一致。",

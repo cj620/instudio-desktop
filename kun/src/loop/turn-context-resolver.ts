@@ -149,6 +149,9 @@ export class TurnContextResolver {
       modelCapabilities: input.modelCapabilities,
       activeSkillIds: skillResolution.activeSkillIds,
       ...(allowedToolNames ? { allowedToolNames } : {}),
+      ...(input.thread.toolCatalogEpoch
+        ? { extensionToolCatalogEpoch: input.thread.toolCatalogEpoch }
+        : {}),
       approvalPolicy,
       sandboxMode,
       ...(userInputDisabled ? { userInputDisabled: true } : {}),
@@ -185,6 +188,9 @@ export class TurnContextResolver {
       activeTodoInstruction,
       planTurnActive,
       ...(allowedToolNames ? { allowedToolNames } : {}),
+      ...(input.thread.toolCatalogEpoch
+        ? { extensionToolCatalogEpoch: input.thread.toolCatalogEpoch }
+        : {}),
       userInputDisabled,
       toolDiscoveryContext,
       tools

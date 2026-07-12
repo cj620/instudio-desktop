@@ -13,6 +13,7 @@ export type ResolveTurnModelInput = {
   items: readonly TurnItem[]
   signal: AbortSignal
   providerId?: string
+  accountId?: string
   reasoningEffort?: string
   candidates: Array<string | undefined>
 }
@@ -45,6 +46,7 @@ export class ModelRoutingService {
       threadId: input.threadId,
       turnId: input.turnId,
       ...(input.providerId ? { providerId: input.providerId } : {}),
+      ...(input.accountId ? { accountId: input.accountId } : {}),
       latestRequest: input.latestRequest,
       recentContext: recentAutoRouterContext(input.items, input.turnId),
       selectedModelMode: 'auto',

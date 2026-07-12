@@ -11,6 +11,7 @@ export type ThreadRow = {
   forked_from_thread_id: string | null; forked_from_title: string | null; forked_at: string | null
   forked_from_message_count: number | null; forked_from_turn_count: number | null
   goal_json: string | null; todos_json: string | null; created_at: string; updated_at: string
+  extension_metadata_json: string | null
   created_at_ms: number; updated_at_ms: number; preview: string | null; message_count: number
   event_seq_high_water: number; metadata_path: string; messages_path: string; events_path: string
   search_text: string
@@ -33,6 +34,15 @@ export function rowFromIndexRecord(record: ThreadIndexRecord, paths: {
     forked_from_turn_count: thread.forkedFromTurnCount ?? null,
     goal_json: thread.goal ? JSON.stringify(thread.goal) : null,
     todos_json: thread.todos ? JSON.stringify(thread.todos) : null,
+    extension_metadata_json: thread.ownerExtensionId ? JSON.stringify({
+      ownerExtensionId: thread.ownerExtensionId,
+      ownerExtensionVersion: thread.ownerExtensionVersion,
+      accountId: thread.accountId,
+      extensionVisibility: thread.extensionVisibility,
+      extensionProfile: thread.extensionProfile,
+      extensionBudget: thread.extensionBudget,
+      toolCatalogEpoch: thread.toolCatalogEpoch
+    }) : null,
     created_at: thread.createdAt, updated_at: thread.updatedAt,
     created_at_ms: isoToMillis(thread.createdAt), updated_at_ms: isoToMillis(thread.updatedAt),
     preview: record.preview || null, message_count: record.messageCount,
@@ -45,6 +55,7 @@ export function rowFromIndexRecord(record: ThreadIndexRecord, paths: {
 export function summaryFromRow(row: ThreadRow): ThreadSummary {
   const goal = parseJson<ThreadGoal>(row.goal_json)
   const todos = parseJson<ThreadTodoList>(row.todos_json)
+  const extension = parseJson<ExtensionThreadMetadata>(row.extension_metadata_json)
   return {
     id: row.id, title: row.title, workspace: row.workspace, model: row.model, mode: row.mode,
     status: row.status, approvalPolicy: row.approval_policy, sandboxMode: row.sandbox_mode,
@@ -56,10 +67,14 @@ export function summaryFromRow(row: ThreadRow): ThreadSummary {
     ...(row.forked_at ? { forkedAt: row.forked_at } : {}),
     ...(row.forked_from_message_count !== null ? { forkedFromMessageCount: row.forked_from_message_count } : {}),
     ...(row.forked_from_turn_count !== null ? { forkedFromTurnCount: row.forked_from_turn_count } : {}),
-    ...(goal ? { goal } : {}), ...(todos ? { todos } : {}),
+    ...(goal ? { goal } : {}), ...(todos ? { todos } : {}), ...(extension ?? {}),
     createdAt: row.created_at, updatedAt: row.updated_at
   }
 }
+
+type ExtensionThreadMetadata = Pick<ThreadRecord,
+  'ownerExtensionId' | 'ownerExtensionVersion' | 'accountId' | 'extensionVisibility'
+  | 'extensionProfile' | 'extensionBudget' | 'toolCatalogEpoch'>
 
 export function filterThreadSummaries(summaries: ThreadSummary[], options: ThreadStoreListOptions): ThreadSummary[] {
   const query = options.search?.trim().toLowerCase()

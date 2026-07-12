@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import {
-  KUN_APPROVAL_TEMPLATE,
   KUN_ATTACHMENT_CONTENT_TEMPLATE,
   KUN_ATTACHMENT_DIAGNOSTICS_TEMPLATE,
   KUN_ATTACHMENTS_TEMPLATE,
@@ -99,7 +98,6 @@ const ENDPOINTS: readonly EndpointTemplate[] = [
   compileEndpoint(KUN_THREAD_TURNS_TEMPLATE, ['POST']),
   compileEndpoint(KUN_THREAD_STEER_TEMPLATE, ['POST']),
   compileEndpoint(KUN_THREAD_INTERRUPT_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_APPROVAL_TEMPLATE, ['POST']),
   compileEndpoint(KUN_USER_INPUT_TEMPLATE, ['POST']),
   compileEndpoint(KUN_SESSION_RESUME_TEMPLATE, ['POST']),
   compileEndpoint(KUN_USAGE_TEMPLATE, ['GET']),
@@ -135,5 +133,13 @@ export const runtimeRequestPayloadSchema = z
   })
   .refine((payload) => isAllowedRuntimeRequest(payload), {
     message: 'runtime request path is not allowed'
+  })
+  .strict()
+
+export const kunProtectedApprovalPayloadSchema = z
+  .object({
+    approvalId: z.string().trim().min(1).max(256).regex(/^[A-Za-z0-9._:-]+$/),
+    decision: z.enum(['allow', 'deny']),
+    source: z.enum(['policy', 'user'])
   })
   .strict()

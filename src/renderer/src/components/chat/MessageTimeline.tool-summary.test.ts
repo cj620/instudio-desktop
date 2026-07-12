@@ -7,6 +7,7 @@ import {
   MessageTimeline,
   goalTimelinePaddingClass,
   liveTurnProgressClass,
+  resultPreviewSourcesForTurn,
   summarizeToolBlock
 } from './MessageTimeline'
 import { GeneratedFilesPanel, MessageBubble } from './message-timeline-bubbles'
@@ -313,6 +314,35 @@ describe('MessageTimeline Kun runtime metadata smoke', () => {
 
     expect((html.match(/summary\.md/g) ?? []).length).toBe(2)
     expect((html.match(/type="button"/g) ?? []).length).toBe(2)
+  })
+
+  it('projects only bounded non-secret generated-file metadata to result preview Views', () => {
+    const sources = resultPreviewSourcesForTurn({
+      user: { kind: 'user', id: 'user_1', text: 'make report' },
+      blocks: [toolBlock({
+        id: 'tool_preview',
+        meta: {
+          generatedFiles: [{
+            id: 'attachment_1',
+            name: 'summary.json',
+            mimeType: 'application/json',
+            relativePath: 'reports/summary.json',
+            absolutePath: '/private/workspace/reports/summary.json',
+            previewUrl: 'data:application/json;base64,c2VjcmV0'
+          }]
+        }
+      })]
+    })
+
+    expect(sources).toEqual([{
+      sourceId: 'tool_preview:attachment_1',
+      mimeType: 'application/json',
+      name: 'summary.json',
+      attachmentId: 'attachment_1',
+      relativePath: 'reports/summary.json'
+    }])
+    expect(JSON.stringify(sources)).not.toContain('/private/workspace')
+    expect(JSON.stringify(sources)).not.toContain('base64')
   })
 
   it('renders managed Claw prompts as the user-visible message', () => {

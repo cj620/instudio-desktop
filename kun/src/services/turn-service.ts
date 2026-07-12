@@ -22,8 +22,13 @@ import {
   effectiveHistoryAfterLatestCompaction,
   insertCompactionIntoVisibleHistory
 } from '../loop/compaction-history.js'
-import { resolveCompactionModel, summarizeCompactionWithModel } from '../loop/compaction-summary.js'
+import {
+  resolveCoherentProviderAccount,
+  resolveCompactionModel,
+  summarizeCompactionWithModel
+} from '../loop/compaction-summary.js'
 import type { ContextCompactionConfig } from '../loop/model-context-profile.js'
+import { reserveExtensionModelRequest } from '../loop/turn-budget-gate.js'
 import { makeUserItem, makeErrorItem } from '../domain/item.js'
 import { appendTurnItem, createTurnRecord, finishTurn, replaceTurnItem, startTurn as startTurnRecord } from '../domain/turn.js'
 import { touchThread } from '../domain/thread.js'
@@ -123,7 +128,10 @@ export class TurnService {
   async startTurn(input: {
     threadId: string
     request: StartTurnRequest
-  }): Promise<StartTurnResponse> {
+  }, options: {
+    /** Internal extension-broker accounting baseline; not part of StartTurnRequest. */
+    extensionBudgetTokenBaseline?: number
+  } = {}): Promise<StartTurnResponse> {
     let attemptedTurnId: string | undefined
     try {
       const started = await this.withThreadMutation(input.threadId, async () => {
@@ -155,6 +163,7 @@ export class TurnService {
             prompt: input.request.prompt,
             model: input.request.model,
             providerId: input.request.providerId,
+            accountId: input.request.accountId,
             reasoningEffort: input.request.reasoningEffort,
             attachmentIds: input.request.attachmentIds ?? [],
             guiPlan: input.request.guiPlan,
@@ -164,7 +173,10 @@ export class TurnService {
             mode: input.request.mode,
             disableUserInput: input.request.disableUserInput,
             imContext: input.request.imContext,
-            workspaceCheckpointId: input.request.workspaceCheckpointId
+            workspaceCheckpointId: input.request.workspaceCheckpointId,
+            ...(options.extensionBudgetTokenBaseline !== undefined
+              ? { extensionBudgetTokenBaseline: options.extensionBudgetTokenBaseline }
+              : {})
           })
           const userItem = makeUserItem({
             id: `item_${turnId}_user`,
@@ -379,6 +391,16 @@ export class TurnService {
     const thread = await this.deps.threadStore.get(input.threadId)
     if (!thread) throw new Error(`thread not found: ${input.threadId}`)
     const turnId = input.turnId ?? thread.turns[thread.turns.length - 1]?.id ?? this.deps.ids.next('turn')
+    const bindingTurn = thread.turns.find((candidate) => candidate.id === turnId)
+    const {
+      providerId: fallbackProviderId,
+      accountId: fallbackAccountId
+    } = resolveCoherentProviderAccount({
+      turnProviderId: bindingTurn?.providerId,
+      turnAccountId: bindingTurn?.accountId,
+      threadProviderId: thread.providerId,
+      threadAccountId: thread.accountId
+    })
     const prefix = this.deps.prefix ?? createImmutablePrefix({
       pinnedConstraints: ['user: preserve recent turns']
     })
@@ -423,47 +445,77 @@ export class TurnService {
         // issuing a second expensive summary request).
         if (attempt === 1 && this.deps.contextCompaction?.summaryMode === 'model' && this.deps.model) {
           const fallbackModel = modelForManualCompaction({
+            turnModel: bindingTurn?.model,
             threadModel: thread.model,
             defaultModel: this.deps.defaultModel,
             clientModel: this.deps.model.model
           })
           const compactionModel = resolveCompactionModel({
             contextCompaction: this.deps.contextCompaction,
-            fallbackModel
+            fallbackModel,
+            fallbackProviderId,
+            fallbackAccountId
           })
           const model = compactionModel.model
-          const modelSummary = await summarizeCompactionWithModel({
-            threadId: input.threadId,
-            turnId,
-            model,
-            ...(compactionModel.providerId ? { providerId: compactionModel.providerId } : {}),
-            modelClient: this.deps.model,
-            prefix,
-            contextCompaction: this.deps.contextCompaction,
-            items: history,
-            heuristicSummary: result.summaryItem.kind === 'compaction' ? result.summaryItem.summary : '',
-            signal: input.signal ?? new AbortController().signal,
-            recordUsage: async (usageSnapshot) => {
-              const usage = this.deps.usage?.record(input.threadId, usageSnapshot) ?? usageSnapshot
-              await this.deps.events.record({
-                kind: 'usage',
+          const recordFallback = async (message: string): Promise<void> => {
+            await this.deps.events.record({
+              kind: 'error',
+              threadId: input.threadId,
+              turnId,
+              message,
+              code: 'compaction_summary_fallback',
+              severity: 'warning'
+            })
+          }
+          let modelSummary: string | undefined
+          if (compactionModel.bindingError) {
+            await recordFallback(compactionModel.bindingError)
+          } else {
+            const reservation = this.deps.usage
+              ? await reserveExtensionModelRequest({
+                  threadStore: this.deps.threadStore,
+                  usage: this.deps.usage,
+                  nowIso: this.deps.nowIso,
+                  threadId: input.threadId,
+                  turnId
+                })
+              : thread.extensionBudget
+                ? {
+                    allowed: false as const,
+                    reason: 'Extension model-request accounting is unavailable.'
+                  }
+                : { allowed: true as const, counted: false as const }
+            if (!reservation.allowed) {
+              await recordFallback(
+                `${reservation.reason} Model compaction summary was not sent; using heuristic summary.`
+              )
+            } else {
+              modelSummary = await summarizeCompactionWithModel({
                 threadId: input.threadId,
                 turnId,
                 model,
-                usage
-              })
-            },
-            recordFallback: async (message) => {
-              await this.deps.events.record({
-                kind: 'error',
-                threadId: input.threadId,
-                turnId,
-                message,
-                code: 'compaction_summary_fallback',
-                severity: 'warning'
+                ...(compactionModel.providerId ? { providerId: compactionModel.providerId } : {}),
+                ...(compactionModel.accountId ? { accountId: compactionModel.accountId } : {}),
+                modelClient: this.deps.model,
+                prefix,
+                contextCompaction: this.deps.contextCompaction,
+                items: history,
+                heuristicSummary: result.summaryItem.kind === 'compaction' ? result.summaryItem.summary : '',
+                signal: input.signal ?? new AbortController().signal,
+                recordUsage: async (usageSnapshot) => {
+                  const usage = this.deps.usage?.record(input.threadId, usageSnapshot) ?? usageSnapshot
+                  await this.deps.events.record({
+                    kind: 'usage',
+                    threadId: input.threadId,
+                    turnId,
+                    model,
+                    usage
+                  })
+                },
+                recordFallback
               })
             }
-          })
+          }
           if (modelSummary) {
             result = this.deps.compactor.compact({
               threadId: input.threadId,
@@ -713,6 +765,8 @@ export class TurnService {
       | 'toolCatalogFingerprint'
       | 'toolCatalogToolCount'
       | 'toolCatalogDrift'
+      | 'extensionModelRequests'
+      | 'extensionToolInvocations'
     >
   ): Promise<void> {
     await this.upsertThread(threadId, (current) => ({
@@ -735,7 +789,13 @@ export class TurnService {
                 : {}),
               ...(patch.toolCatalogFingerprint ? { toolCatalogFingerprint: patch.toolCatalogFingerprint } : {}),
               ...(patch.toolCatalogToolCount !== undefined ? { toolCatalogToolCount: patch.toolCatalogToolCount } : {}),
-              ...(patch.toolCatalogDrift !== undefined ? { toolCatalogDrift: patch.toolCatalogDrift } : {})
+              ...(patch.toolCatalogDrift !== undefined ? { toolCatalogDrift: patch.toolCatalogDrift } : {}),
+              ...(patch.extensionModelRequests !== undefined
+                ? { extensionModelRequests: patch.extensionModelRequests }
+                : {}),
+              ...(patch.extensionToolInvocations !== undefined
+                ? { extensionToolInvocations: patch.extensionToolInvocations }
+                : {})
             }
           : turn
       )
@@ -939,14 +999,15 @@ function normalizeMaxConcurrentTurns(value: number | undefined): number {
 }
 
 function modelForManualCompaction(input: {
+  turnModel?: string
   threadModel?: string
   defaultModel?: string
   clientModel?: string
 }): string {
-  for (const candidate of [input.threadModel, input.defaultModel, input.clientModel]) {
+  for (const candidate of [input.turnModel, input.threadModel, input.defaultModel, input.clientModel]) {
     const normalized = candidate?.trim()
     if (!normalized || normalized.toLowerCase() === 'auto') continue
     return normalized
   }
-  return input.threadModel?.trim() || input.defaultModel?.trim() || input.clientModel?.trim() || ''
+  return input.turnModel?.trim() || input.threadModel?.trim() || input.defaultModel?.trim() || input.clientModel?.trim() || ''
 }

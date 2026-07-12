@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { buildRouter } from './routes/index.js'
 import type { ServerRuntime } from './routes/server-runtime.js'
 import { startNodeHttpServer, type NodeHttpServerHandle } from './node-http-server.js'
@@ -12,6 +12,7 @@ import { InMemoryEventBus } from '../adapters/in-memory-event-bus.js'
 import { FileSessionStore, FileThreadStore } from '../adapters/file/index.js'
 import { HybridSessionStore, HybridThreadStore } from '../adapters/hybrid/index.js'
 import { CompatModelClient } from '../adapters/model/compat-model-client.js'
+import { ExtensionModelProviderRegistry } from '../adapters/model/extension-model-provider.js'
 import { MultiProviderModelClient } from '../adapters/model/multi-provider-model-client.js'
 import { CapabilityRegistry } from '../adapters/tool/capability-registry.js'
 import {
@@ -24,6 +25,7 @@ import { buildDesignCanvasLocalTools } from '../adapters/tool/design-canvas-tool
 import { buildDesignSvgLocalTools } from '../adapters/tool/design-svg-tool.js'
 import { buildPptMasterLocalTools } from '../adapters/tool/ppt-master-tool.js'
 import { LocalToolHost, buildDefaultLocalTools } from '../adapters/tool/local-tool-host.js'
+import { ExtensionToolRegistry } from '../adapters/tool/extension-tool-provider.js'
 import { shutdownAllLspSessions } from '../adapters/tool/lsp-client.js'
 import { createReadArtifactTool } from '../adapters/tool/artifact-tool.js'
 import { FileArtifactStore } from '../artifacts/artifact-store.js'
@@ -76,8 +78,10 @@ import { mergeBuiltinSubagentProfiles } from '../delegation/builtin-profiles.js'
 import { InflightTracker } from '../loop/inflight-tracker.js'
 import { SteeringQueue } from '../loop/steering-queue.js'
 import { RandomIdGenerator } from '../ports/id-generator.js'
+import type { ModelClient } from '../ports/model-client.js'
 import type { SessionStore } from '../ports/session-store.js'
 import type { ThreadStore } from '../ports/thread-store.js'
+import type { ToolHostContext } from '../ports/tool-host.js'
 import { KUN_SYSTEM_PROMPT } from '../prompt/kun-system-prompt.js'
 import { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
 import {
@@ -111,6 +115,38 @@ import { createBackgroundShellTool } from '../adapters/tool/background-shell-too
 import { createSecretEncryptor, defaultSecretCommandRunner } from '../security/secret-store.js'
 import type { LocalTool } from '../adapters/tool/local-tool-host.js'
 import { InMemoryPublisherTrustStore } from '../supplychain/publisher-trust-store.js'
+import {
+  CURRENT_MANIFEST_VERSION,
+  SUPPORTED_EXTENSION_API_VERSIONS,
+  type ExtensionManifest
+} from '@kun/extension-api'
+import {
+  ExtensionIndexClient,
+  ExtensionLogWriter,
+  ExtensionManager,
+  ExtensionPackageManager,
+  ExtensionPaths,
+  ExtensionRegistry,
+  ExtensionStateMigrationCoordinator,
+  ExtensionStateStore
+} from '../extensions/index.js'
+import { ExtensionAgentProfileRegistry } from '../services/extension-agent-profile-registry.js'
+import { ExtensionAgentService } from '../services/extension-agent-service.js'
+import { ExtensionCredentialStore } from '../services/extension-credential-store.js'
+import { ExtensionProviderAccountStore } from '../services/extension-provider-account-store.js'
+import { ExtensionAccountBroker } from '../services/extension-account-broker.js'
+import {
+  ExtensionHostBroker,
+  requiredExtensionBrokerPermission
+} from '../services/extension-host-broker.js'
+import {
+  LegacyProviderCredentialMigrationService,
+  materializeLegacyProviderCredential
+} from '../services/legacy-provider-credential-migration.js'
+import { ExtensionViewSessionService } from '../services/extension-view-session-service.js'
+import { ExtensionViewHostGenerationTracker } from '../extensions/view-host-generation-tracker.js'
+import { ExtensionSecretRevealConsentService } from '../services/extension-secret-reveal-consent.js'
+import { ExtensionConfigurationService } from '../services/extension-configuration-service.js'
 
 export type KunServeRuntimeOptions = {
   host: string
@@ -119,6 +155,7 @@ export type KunServeRuntimeOptions = {
   dataDir: string
   runtimeToken: string
   apiKey: string
+  credentialSourceId?: string
   baseUrl: string
   modelProxyUrl?: string
   endpointFormat?: ModelEndpointFormat
@@ -159,6 +196,8 @@ export type KunServeRuntimeOptions = {
   /** Design-quality linter config; drives the builtin PostToolUse hook. */
   quality?: QualityConfig
   startedAt?: string
+  /** Test/embedding override; production uses the bundled Host runner. */
+  extensionHostRunnerPath?: string
 }
 
 export type KunServeHandle = NodeHttpServerHandle & {
@@ -258,17 +297,82 @@ export async function createKunServeRuntime(
   // are delegated to the embedded Claude Agent SDK (subscription) instead.
   const agentSdkProviderIds = agentSdkProviderIdsForOptions(activeOptions)
   let agentSdkSignature = agentSdkProviderSignature(activeOptions)
+  const extensionProviderAccounts = new ExtensionProviderAccountStore({
+    dataDir: activeOptions.dataDir,
+    nowIso
+  })
+  const extensionCredentialKeyProvider = await createSecretEncryptor({
+    keyFilePath: join(activeOptions.dataDir, 'secret.key'),
+    run: defaultSecretCommandRunner
+  })
+  const extensionCredentials = new ExtensionCredentialStore({
+    dataDir: activeOptions.dataDir,
+    profileId: 'default',
+    keyProvider: extensionCredentialKeyProvider,
+    nowIso
+  })
+  const extensionAccountAudit = new ExtensionLogWriter(
+    join(activeOptions.dataDir, 'extensions', 'account-audit.log'),
+    { maxBytes: 5 * 1024 * 1024, retention: 3 }
+  )
+  const extensionAccounts = new ExtensionAccountBroker({
+    store: extensionProviderAccounts,
+    credentials: extensionCredentials,
+    audit: (event) => extensionAccountAudit.write('lifecycle', JSON.stringify(event))
+  })
+  const extensionModelProviders = new ExtensionModelProviderRegistry({
+    accounts: extensionProviderAccounts
+  })
+  const legacyCredentialMigration = new LegacyProviderCredentialMigrationService({
+    dataDir: activeOptions.dataDir,
+    accounts: extensionProviderAccounts,
+    credentials: extensionCredentials,
+    nowIso
+  })
+  const migrateLegacyProviderCredentials = async (): Promise<void> => {
+    const sources = [
+      ...(activeOptions.apiKey.trim() && !activeOptions.credentialSourceId ? [{
+        sourceId: 'runtime:default',
+        providerId: 'default',
+        providerName: 'Kun default provider',
+        label: 'Migrated runtime credential',
+        apiKey: activeOptions.apiKey
+      }] : []),
+      ...Object.entries(activeOptions.providers ?? {})
+        .filter(([, provider]) => provider.apiKey.trim() && !provider.credentialSourceId)
+        .map(([providerId, provider]) => ({
+          sourceId: `runtime:provider:${providerId}`,
+          providerId,
+          providerName: providerId,
+          label: 'Migrated provider credential',
+          apiKey: provider.apiKey
+        }))
+    ]
+    try {
+      await legacyCredentialMigration.migrate(sources)
+    } catch {
+      // Compatibility reads remain authoritative until a secure migration
+      // commits; a credential-backend outage must not break the live runtime.
+    }
+  }
+  await migrateLegacyProviderCredentials()
+  activeOptions = await hydrateLegacyCredentialOptions(activeOptions, legacyCredentialMigration)
   const modelClient = new MultiProviderModelClient(
     buildModelClientRouterInput(activeOptions, modelCapabilities, llmDebug)
   )
+  const replaceRoutedModelClients = (): void => {
+    const next = buildModelClientRouterInput(activeOptions, modelCapabilities, llmDebug)
+    for (const [providerId, client] of extensionModelProviders.clientMap()) {
+      next.providers.set(providerId, client)
+    }
+    modelClient.replace(next)
+  }
+  const stopExtensionModelListener = extensionModelProviders.onDidChange(replaceRoutedModelClients)
   const hasMcpOAuth = Object.values(activeOptions.capabilities?.mcp?.servers ?? {}).some((server) =>
     server.oauth?.enabled !== false && Boolean(server.oauth) && server.transport !== 'stdio'
   )
   const oauthEncryptor = hasMcpOAuth
-    ? (await createSecretEncryptor({
-        keyFilePath: join(activeOptions.dataDir, 'secret.key'),
-        run: defaultSecretCommandRunner
-      })).encryptor
+    ? extensionCredentialKeyProvider.encryptor
     : undefined
   // Independent I/O; all must still finish before the server listens.
   let [mcpProviders, skillRuntime] = await Promise.all([
@@ -339,7 +443,10 @@ export async function createKunServeRuntime(
 	    ...(activeOptions.runtime ? { runtime: activeOptions.runtime } : {}),
 	    ...(activeOptions.roles?.codeReviewReasoningEffort
 	      ? { reasoningEffort: activeOptions.roles.codeReviewReasoningEffort }
-	      : {})
+	      : {}),
+	    ...(activeOptions.roles?.codeReviewModel ? { roleModel: activeOptions.roles.codeReviewModel } : {}),
+	    ...(activeOptions.roles?.codeReviewProviderId ? { roleProviderId: activeOptions.roles.codeReviewProviderId } : {}),
+	    ...(activeOptions.roles?.codeReviewAccountId ? { roleAccountId: activeOptions.roles.codeReviewAccountId } : {})
 	  }
 	  const reviewService = new ReviewService(reviewDeps)
 	  let webProviders = buildWebToolProviders(activeOptions.capabilities?.web)
@@ -551,11 +658,14 @@ export async function createKunServeRuntime(
     },
     ...buildDelegationToolProviders(delegationRuntime)
   ])
+  let prepareExtensionContributions: ((context?: ToolHostContext) => Promise<void>) | undefined
   const toolHost = new LocalToolHost({
     registry,
     readTracker: true,
+    prepare: (context) => prepareExtensionContributions?.(context),
     ...(resolvedHooks.length ? { hooks: resolvedHooks } : {})
   })
+  const extensionTools = new ExtensionToolRegistry({ registry })
   // Keep retrying MCP servers that lost the fast startup connect race so a slow
   // npx cold start eventually shows up as connected instead of staying "error"
   // until the next runtime restart (issue #342). Both registries advertise the
@@ -682,6 +792,245 @@ export async function createKunServeRuntime(
 	  }
 	  const runReview = (input: Parameters<typeof reviewService.runReview>[0]) =>
 	    trackRuntimeRun(reviewService.runReview(input))
+	  const extensionProfiles = new ExtensionAgentProfileRegistry()
+	  const extensionAgent = new ExtensionAgentService({
+	    threads: threadService,
+	    turns: turnService,
+	    sessions: sessionStore,
+	    eventBus,
+	    profiles: extensionProfiles,
+	    runTurn: runAgentTurn,
+	    defaultBinding: { providerId: 'default', modelId: activeOptions.model },
+	    headless: true,
+	    resolveToolCatalogEpoch: async ({ principal, allowedTools }) => {
+	      const owned = extensionTools.list(principal.extensionId)
+	      const allowed = new Set(allowedTools)
+	      const eligibleCanonicalToolIds = owned
+	        .filter((entry) => allowed.size === 0 ||
+	          allowed.has(entry.canonicalToolId) ||
+	          allowed.has(entry.modelAlias) ||
+	          allowed.has(entry.declaration.name))
+	        .map((entry) => entry.canonicalToolId)
+	      return extensionTools.createCatalogEpoch({ eligibleCanonicalToolIds })
+	    }
+	  })
+	  const extensionPaths = new ExtensionPaths({
+	    packageRoot: join(activeOptions.dataDir, 'extensions'),
+	    dataRoot: join(activeOptions.dataDir, 'extension-data')
+	  })
+	  const extensionRegistry = new ExtensionRegistry(extensionPaths)
+	  const extensionApiCapabilities = [
+	    'commands', 'storage', 'configuration', 'network', 'ui', 'agent', 'threads', 'tools',
+	    'modelProviders', 'authentication', 'workspace'
+	  ]
+	  const extensionValidation = {
+	    compatibility: {
+	      kunVersion: '0.1.0',
+	      supportedManifestVersions: [CURRENT_MANIFEST_VERSION],
+	      supportedApiVersions: SUPPORTED_EXTENSION_API_VERSIONS,
+	      capabilitiesByApiVersion: Object.fromEntries(
+	        SUPPORTED_EXTENSION_API_VERSIONS.map((version) => [version, extensionApiCapabilities])
+	      )
+	    }
+	  }
+	  const extensionPackageManager = new ExtensionPackageManager(
+	    extensionPaths,
+	    extensionRegistry,
+	    extensionValidation
+	  )
+	  const extensionState = new ExtensionStateStore(extensionPaths)
+	  const extensionConfiguration = new ExtensionConfigurationService(extensionState)
+	  const extensionViewSessions = new ExtensionViewSessionService()
+	  const extensionViewHostGenerations = new ExtensionViewHostGenerationTracker()
+	  const extensionSecretReveals = new ExtensionSecretRevealConsentService()
+	  const extensionPreparations = new Map<string, { revision: number; promise: Promise<void> }>()
+	  let extensionBroker!: ExtensionHostBroker
+	  const extensionManager = new ExtensionManager({
+	    packageManager: extensionPackageManager,
+	    paths: extensionPaths,
+	    ...(activeOptions.extensionHostRunnerPath
+	      ? { runnerPath: activeOptions.extensionHostRunnerPath }
+	      : {}),
+	    capabilitiesForExtension: () => extensionApiCapabilities,
+	    broker: (request) => extensionBroker.handle(request),
+	    requiredPermission: requiredExtensionBrokerPermission,
+	    onNotification: (principal, method, params) =>
+	      extensionBroker.notification(principal, method, params),
+	    onStream: (principal, requestId, sequence, payload, terminal) =>
+	      extensionBroker.stream(principal, requestId, sequence, payload, terminal),
+	    onHostActivated: (principal) => {
+	      extensionViewHostGenerations.bindExtension(
+	        principal.extensionId,
+	        principal.lifecycleNonce
+	      )
+	    },
+	    onHostExit: async (exit) => {
+	      // Unexpected exits invalidate every guest bound to the crashed Host.
+	      // Expected lifecycle stops are already coordinated by disable/version/
+	      // shutdown paths. Keeping their sessions here also prevents an idle
+	      // teardown from deleting a newly retained View that is waiting for the
+	      // old Host cleanup to finish before reactivation.
+	      if (!exit.expected) {
+	        for (const sessionId of extensionViewHostGenerations.takeExitedGeneration(
+	          exit.extensionId,
+	          exit.lifecycleNonce
+	        )) {
+	          extensionViewSessions.disposeSession(sessionId)
+	        }
+	      }
+	      await extensionBroker.disposeExtension(exit.extensionId)
+	      // A crash does not change the registry revision, so explicitly drop
+	      // successful lazy-preparation entries and allow clean reactivation.
+	      extensionPreparations.clear()
+	    }
+	  })
+	  const resolveExtensionManifest = async (extensionId: string): Promise<ExtensionManifest | undefined> => {
+	    const entry = await extensionRegistry.get(extensionId)
+	    if (!entry) return undefined
+	    if (entry.useDevelopment) return entry.development?.manifest
+	    return entry.selectedVersion ? entry.versions[entry.selectedVersion]?.manifest : undefined
+	  }
+	  extensionBroker = new ExtensionHostBroker({
+	    agent: extensionAgent,
+	    profiles: extensionProfiles,
+	    tools: extensionTools,
+	    modelProviders: extensionModelProviders,
+	    providerAccounts: extensionProviderAccounts,
+	    accounts: extensionAccounts,
+	    credentials: extensionCredentials,
+	    state: extensionState,
+	    configuration: extensionConfiguration,
+	    invokeExtension: (extensionId, activationEvent, method, params, invokeOptions) =>
+	      extensionManager.invoke(extensionId, activationEvent, method, params, invokeOptions),
+	    notifyExtension: (extensionId, method, params) =>
+	      extensionManager.notify(extensionId, method, params),
+	    notifyView: (input) => extensionViewSessions.publishBridgeNotification(input),
+	    resolveManifest: resolveExtensionManifest,
+	    onUiRequest: extensionViewSessions.onUiRequest,
+	    authorizeSecretReveal: (input) => extensionSecretReveals.authorize(input)
+	  })
+	  extensionViewSessions.onDidDispose((sessionId) => {
+	    extensionBroker.disposeViewSession(sessionId)
+	  })
+	  extensionViewSessions.onDidLifecycle(({ state, session }) => {
+	    if (state === 'created') {
+	      extensionViewHostGenerations.register(
+	        session.sessionId,
+	        session.extensionId,
+	        extensionManager.activeHostGeneration(session.extensionId)
+	      )
+	      extensionManager.retainView(session.extensionId)
+	    } else {
+	      extensionViewHostGenerations.unregister(session.sessionId)
+	      extensionManager.releaseView(session.extensionId)
+	    }
+	  })
+	  extensionConfiguration.onDidChange(async (change) => {
+	    const event = {
+	      sectionId: change.sectionId,
+	      key: change.key,
+	      scope: change.scope,
+	      value: change.value
+	    }
+	    await extensionManager.notify(
+	      change.extensionId,
+	      'configuration.changed',
+	      event
+	    ).catch(() => undefined)
+	    extensionViewSessions.publish(change.extensionId, 'bridge', {
+	      method: 'configuration.changed',
+	      params: event
+	    })
+	  })
+	  const extensionStateMigrations = new ExtensionStateMigrationCoordinator(
+	    extensionState,
+	    extensionManager,
+	    extensionRegistry
+	  )
+	  const extensionLifecycle = extensionStateMigrations.lifecycle()
+	  extensionPackageManager.setLifecycle({
+	    runVersionSwitch: async (context, commitSelection) => {
+	      extensionViewSessions.disposeExtension(context.extensionId)
+	      await extensionBroker.disposeExtension(context.extensionId)
+	      if (extensionLifecycle.runVersionSwitch === undefined) {
+	        throw new Error('Extension version switch transaction coordinator is unavailable')
+	      }
+	      await extensionLifecycle.runVersionSwitch(context, commitSelection)
+	    },
+	    recoverVersionSwitch: (extensionId) =>
+	      extensionLifecycle.recoverVersionSwitch?.(extensionId) ?? Promise.resolve(),
+	    recoverVersionSwitches: () =>
+	      extensionLifecycle.recoverVersionSwitches?.() ?? Promise.resolve(),
+	    beforeDisable: async (extensionId, workspaceKey) => {
+	      await extensionLifecycle.beforeDisable?.(extensionId, workspaceKey)
+	      extensionViewSessions.disposeExtension(extensionId)
+	      await extensionBroker.disposeExtension(extensionId)
+	    },
+	    beforePermissionChange: async (extensionId) => {
+	      extensionViewSessions.disposeExtension(extensionId)
+	      await extensionManager.deactivate(extensionId)
+	      await extensionBroker.disposeExtension(extensionId)
+	    },
+	    beforeUninstall: async (extensionId) => {
+	      await extensionLifecycle.beforeUninstall?.(extensionId)
+	      extensionViewSessions.disposeExtension(extensionId)
+	      await extensionBroker.disposeExtension(extensionId)
+	    }
+	  })
+	  await extensionPackageManager.recover()
+	  const extensionIndexClient = new ExtensionIndexClient()
+	  const activateDeclaredHeadlessContributions = async (
+	    document: Awaited<ReturnType<ExtensionRegistry['read']>>,
+	    context?: ToolHostContext
+	  ): Promise<boolean> => {
+	    const outcomes = await Promise.allSettled(Object.values(document.extensions).map(async (entry) => {
+	      const workspaceKey = context?.workspace && isAbsolute(context.workspace)
+	        ? extensionPaths.workspaceKey(context.workspace)
+	        : undefined
+	      const enabled = workspaceKey && workspaceKey in entry.workspaceEnablement
+	        ? entry.workspaceEnablement[workspaceKey]
+	        : entry.globallyEnabled
+	      if (!enabled) return
+	      const manifest = entry.useDevelopment
+	        ? entry.development?.manifest
+	        : entry.selectedVersion ? entry.versions[entry.selectedVersion]?.manifest : undefined
+	      if (!manifest?.main) return
+	      const declaredHeadlessEvents = [
+	        ...manifest.contributes.tools.map(({ id }) => `onTool:${id}`),
+	        ...manifest.contributes.modelProviders.map(({ id }) => `onProvider:${id}`),
+	        ...manifest.contributes.agentProfiles.map(({ id }) => `onAgentProfile:${id}`)
+	      ]
+	      const event = declaredHeadlessEvents.find((candidate) =>
+	        manifest.activationEvents.includes(candidate)
+	      ) ?? (manifest.activationEvents.includes('onStartup') ? 'onStartup' : undefined)
+	      if (event) await extensionManager.activate(entry.id, event, {
+	        ...(context?.workspace ? { workspaceRoot: context.workspace } : {})
+	      })
+	    }))
+	    return outcomes.every((outcome) => outcome.status === 'fulfilled')
+	  }
+	  prepareExtensionContributions = async (context) => {
+	    const key = context?.workspace ?? '__global__'
+	    const document = await extensionRegistry.read()
+	    const existing = extensionPreparations.get(key)
+	    if (existing?.revision === document.revision) return existing.promise
+	    let record!: { revision: number; promise: Promise<void> }
+	    const promise = activateDeclaredHeadlessContributions(document, context)
+	      .then((allSucceeded) => {
+	        // A partially failed activation is deliberately not sticky. The
+	        // manager's bounded restart backoff controls retries per extension.
+	        if (!allSucceeded && extensionPreparations.get(key) === record) {
+	          extensionPreparations.delete(key)
+	        }
+	      })
+	      .catch((error) => {
+	        if (extensionPreparations.get(key) === record) extensionPreparations.delete(key)
+	        throw error
+	      })
+	    record = { revision: document.revision, promise }
+	    extensionPreparations.set(key, record)
+	    return promise
+	  }
 	  backgroundShellRuntime.bindAgentLoop({
 	    runTurn: runAgentTurn
 	  })
@@ -760,7 +1109,10 @@ export async function createKunServeRuntime(
 	  const applyConfigOnce = async (
 	    request: RuntimeConfigApplyRequest
 	  ): Promise<RuntimeConfigApplyResponse> => {
-	    const nextOptions = mergeRuntimeConfigApplyOptions(activeOptions, request)
+	    const nextOptions = await hydrateLegacyCredentialOptions(
+	      mergeRuntimeConfigApplyOptions(activeOptions, request),
+	      legacyCredentialMigration
+	    )
 	    const nextAgentSdkSignature = agentSdkProviderSignature(nextOptions)
 	    if (nextAgentSdkSignature !== agentSdkSignature) {
 	      return {
@@ -787,10 +1139,7 @@ export async function createKunServeRuntime(
 	      server.oauth?.enabled !== false && Boolean(server.oauth) && server.transport !== 'stdio'
 	    )
 	    const nextOAuthEncryptor = nextMcpHasOAuth
-	      ? (await createSecretEncryptor({
-	          keyFilePath: join(activeOptions.dataDir, 'secret.key'),
-	          run: defaultSecretCommandRunner
-	        })).encryptor
+	      ? extensionCredentialKeyProvider.encryptor
 	      : undefined
 	    const [nextMcpProviders, nextSkillRuntime] = await Promise.all([
 	      buildMcpToolProviders(nextOptions.capabilities?.mcp, {
@@ -898,7 +1247,8 @@ export async function createKunServeRuntime(
 	    modelProfiles = nextModelProfiles
 	    tokenEconomy = nextTokenEconomy
 	    agentSdkSignature = nextAgentSdkSignature
-	    modelClient.replace(buildModelClientRouterInput(activeOptions, modelCapabilities, llmDebug))
+	    replaceRoutedModelClients()
+	    await migrateLegacyProviderCredentials()
 	    skillRuntime.replaceWith(nextSkillRuntime)
 	    instructionRuntime.replaceConfig(activeOptions.capabilities?.instructions)
 	    mcpProviders = nextMcpProviders
@@ -914,6 +1264,7 @@ export async function createKunServeRuntime(
 	    baseToolProviders = nextBaseToolProviders
 	    childRegistry = nextChildRegistry
 	    registry = nextRegistry
+	    extensionTools.rebindRegistry(registry)
 	    childToolHost.replaceRuntimeComponents({ registry: childRegistry, hooks: resolvedHooks })
 	    toolHost.replaceRuntimeComponents({ registry, hooks: resolvedHooks })
 	    if (sdkRuntimeDeps) {
@@ -943,6 +1294,10 @@ export async function createKunServeRuntime(
 	      model: modelClient,
 	      maxConcurrentTurns: activeOptions.runtime?.turnLimits?.maxConcurrentTurns
 	    })
+	    extensionAgent.updateRuntimeConfig({
+	      defaultBinding: { providerId: 'default', modelId: activeOptions.model }
+	    })
+	    extensionPreparations.clear()
 	    threadService.updateRuntimeDefaults({
 	      approvalPolicy: activeOptions.approvalPolicy,
 	      sandboxMode: activeOptions.sandboxMode
@@ -953,7 +1308,10 @@ export async function createKunServeRuntime(
 	      contextCompaction: activeOptions.contextCompaction,
 	      tokenEconomy,
 	      runtime: activeOptions.runtime,
-	      reasoningEffort: activeOptions.roles?.codeReviewReasoningEffort
+	      reasoningEffort: activeOptions.roles?.codeReviewReasoningEffort,
+	      roleModel: activeOptions.roles?.codeReviewModel,
+	      roleProviderId: activeOptions.roles?.codeReviewProviderId,
+	      roleAccountId: activeOptions.roles?.codeReviewAccountId
 	    })
 	    loopOptions.tokenEconomy = tokenEconomy
 	    loopOptions.contextCompaction = activeOptions.contextCompaction
@@ -1006,6 +1364,25 @@ export async function createKunServeRuntime(
 	    },
 	    backgroundShellRuntime,
 	    supplyChainTrust,
+	    extensionPlatform: {
+	      paths: extensionPaths,
+	      registry: extensionRegistry,
+	      packageManager: extensionPackageManager,
+	      manager: extensionManager,
+	      indexClient: extensionIndexClient,
+	      validation: extensionValidation,
+	      broker: extensionBroker,
+	      agent: extensionAgent,
+	      tools: extensionTools,
+	      modelProviders: extensionModelProviders,
+	      providerAccounts: extensionProviderAccounts,
+	      accounts: extensionAccounts,
+	      credentials: extensionCredentials,
+	      state: extensionState,
+	      configuration: extensionConfiguration,
+	      viewSessions: extensionViewSessions,
+	      secretReveals: extensionSecretReveals
+	    },
 	    modelClient,
 	    get defaultModel() {
 	      return activeOptions.model
@@ -1051,7 +1428,14 @@ export async function createKunServeRuntime(
           heapTotalBytes: memory.heapTotal,
           externalBytes: memory.external
         },
-        capabilities: rebuildCapabilities()
+        capabilities: rebuildCapabilities(),
+	        extensions: {
+	          enabled: true,
+	          apiVersions: [...SUPPORTED_EXTENSION_API_VERSIONS],
+	          manifestVersions: [CURRENT_MANIFEST_VERSION],
+	          packageRoot: extensionPaths.packageRoot,
+	          dataRoot: extensionPaths.dataRoot
+	        }
       }
     },
 	    toolDiagnostics: async () => ({
@@ -1071,7 +1455,13 @@ export async function createKunServeRuntime(
       imageGen: imageGenProviders.diagnostics,
       speechGen: speechGenProviders.diagnostics,
       musicGen: musicGenProviders.diagnostics,
-      videoGen: videoGenProviders.diagnostics
+	      videoGen: videoGenProviders.diagnostics,
+	      extensions: {
+	        tools: extensionTools.list(),
+	        providers: [...extensionModelProviders.clientMap().keys()].sort(),
+	        providerDiagnostics: extensionModelProviders.diagnostics(),
+	        hosts: await extensionManager.listDiagnostics()
+	      }
 	    }),
     mcpOAuth: async () => mcpProviders.oauth,
     clearMcpOAuth: async (serverId) => mcpProviders.clearOAuthCredentials(serverId),
@@ -1085,6 +1475,14 @@ export async function createKunServeRuntime(
         await backgroundShellRuntime.shutdown()
         await turnService.interruptActiveTurns()
         await waitForActiveRuns(activeRuntimeRuns)
+	        stopExtensionModelListener()
+	        extensionViewSessions.disposeAll()
+	        await extensionManager.shutdown()
+	        await extensionBroker.dispose()
+	        extensionSecretReveals.dispose()
+	        await extensionAccountAudit.flush()
+	        extensionTools.disposeAll()
+	        await extensionModelProviders.disposeAll()
         shutdownAllLspSessions()
         await mcpProviders.close()
       } finally {
@@ -1111,11 +1509,54 @@ async function waitForActiveRuns(
   }
 }
 
+async function hydrateLegacyCredentialOptions(
+  options: KunServeRuntimeOptions,
+  migration: LegacyProviderCredentialMigrationService
+): Promise<KunServeRuntimeOptions> {
+  let apiKey = options.apiKey
+  let headers = options.headers
+  if (options.credentialSourceId) {
+    const resolved = await migration.resolveApiKey(options.credentialSourceId).catch(() => null)
+    if (resolved) {
+      const material = materializeLegacyProviderCredential(resolved.apiKey)
+      apiKey = material.apiKey
+      headers = material.headers
+        ? { ...(headers ?? {}), ...material.headers }
+        : headers
+    }
+  }
+
+  const providers: Record<string, ServeProviderConfig> = {}
+  for (const [providerId, provider] of Object.entries(options.providers ?? {})) {
+    let nextProvider = provider
+    if (provider.credentialSourceId) {
+      const resolved = await migration.resolveApiKey(provider.credentialSourceId).catch(() => null)
+      if (resolved) {
+        const material = materializeLegacyProviderCredential(resolved.apiKey)
+        nextProvider = {
+          ...provider,
+          apiKey: material.apiKey,
+          ...(material.headers
+            ? { headers: { ...(provider.headers ?? {}), ...material.headers } }
+            : {})
+        }
+      }
+    }
+    providers[providerId] = nextProvider
+  }
+  return {
+    ...options,
+    apiKey,
+    ...(headers ? { headers } : {}),
+    ...(options.providers ? { providers } : {})
+  }
+}
+
 function buildModelClientRouterInput(
   options: KunServeRuntimeOptions,
   modelCapabilities: (model: string) => ReturnType<typeof modelCapabilitiesForModel>,
   llmDebug?: LlmDebugRecorder
-): { default: CompatModelClient; providers: Map<string, CompatModelClient> } {
+): { default: CompatModelClient; providers: Map<string, ModelClient> } {
   const streamIdleOverride =
     options.runtime?.streamIdleTimeoutMs !== undefined
       ? { streamIdleTimeoutMs: options.runtime.streamIdleTimeoutMs }
@@ -1132,7 +1573,7 @@ function buildModelClientRouterInput(
     ...(llmDebug ? { debugSink: llmDebug } : {}),
     ...streamIdleOverride
   })
-  const providerClients = new Map<string, CompatModelClient>()
+  const providerClients = new Map<string, ModelClient>()
   for (const [providerId, provider] of Object.entries(options.providers ?? {})) {
     const trimmedId = providerId.trim()
     if (!trimmedId || (provider.kind ?? 'http') === 'agent-sdk') continue
@@ -1176,6 +1617,7 @@ function mergeRuntimeConfigApplyOptions(
   return {
     ...current,
     apiKey: serve.apiKey ?? current.apiKey,
+    credentialSourceId: serve.credentialSourceId ?? current.credentialSourceId,
     baseUrl: serve.baseUrl ?? current.baseUrl,
     modelProxyUrl: serve.modelProxyUrl ?? current.modelProxyUrl,
     endpointFormat: serve.endpointFormat ?? current.endpointFormat,

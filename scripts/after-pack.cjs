@@ -1,14 +1,38 @@
 const { execFileSync } = require('node:child_process')
-const { chmodSync, existsSync, readdirSync, rmSync } = require('node:fs')
+const { chmodSync, cpSync, existsSync, lstatSync, readdirSync, rmSync } = require('node:fs')
 const { join } = require('node:path')
 
 const KUN_RUNTIME_REQUIRED_PATHS = [
   'kun/dist/cli/serve-entry.js',
+  'kun/dist/cli/extension-cli.js',
+  'kun/dist/extensions/host-runner.js',
   'kun/package.json',
   'kun/package-lock.json',
   'kun/node_modules/zod/package.json',
   'kun/node_modules/diff/package.json',
-  'kun/node_modules/@modelcontextprotocol/sdk/package.json'
+  'kun/node_modules/semver/package.json',
+  'kun/node_modules/yauzl/package.json',
+  'kun/node_modules/yazl/package.json',
+  'kun/node_modules/@modelcontextprotocol/sdk/package.json',
+  'kun/node_modules/@kun/extension-api/package.json',
+  'kun/node_modules/@kun/extension-api/dist/index.js',
+  'kun/node_modules/create-kun-extension/package.json',
+  'kun/node_modules/create-kun-extension/src/cli.mjs',
+  'node_modules/better-sqlite3/package.json',
+  'node_modules/bindings/package.json',
+  'node_modules/file-uri-to-path/package.json',
+  'packages/extension-api/dist/index.js',
+  'packages/extension-api/schema/kun-extension.schema.json',
+  'packages/extension-api/fixtures/api-major-negotiation.json',
+  'packages/create-kun-extension/src/cli.mjs',
+  'packages/create-kun-extension/src/scaffold.mjs',
+  'packages/create-kun-extension/templates/node/kun-extension.json',
+  'packages/create-kun-extension/templates/node/src/extension.ts',
+  'packages/create-kun-extension/templates/react/kun-extension.json',
+  'packages/create-kun-extension/templates/react/src/host/extension.ts',
+  'packages/create-kun-extension/templates/react/src/webview/main.tsx',
+  'packages/create-kun-extension/templates/webview/kun-extension.json',
+  'packages/create-kun-extension/templates/webview/src/webview/main.ts'
 ]
 
 function normalizePlatform(platform) {
@@ -72,6 +96,24 @@ function prunePackedKunDependencies(context) {
     'root better-sqlite3 dependency'
   )
   rmSync(join(kunDir, 'node_modules', 'better-sqlite3'), { recursive: true, force: true })
+}
+
+function materializePackedWorkspaceDependencies(context) {
+  const root = unpackedAppRoot(context)
+  for (const [sourceRelative, targetRelative] of [
+    ['packages/extension-api', 'kun/node_modules/@kun/extension-api'],
+    ['packages/create-kun-extension', 'kun/node_modules/create-kun-extension']
+  ]) {
+    const source = join(root, sourceRelative)
+    const target = join(root, targetRelative)
+    assertExists(source, `workspace package source ${sourceRelative}`)
+    rmSync(target, { recursive: true, force: true })
+    cpSync(source, target, { recursive: true, force: true })
+    const details = lstatSync(target)
+    if (!details.isDirectory() || details.isSymbolicLink()) {
+      throw new Error(`[after-pack] Workspace dependency was not materialized: ${targetRelative}`)
+    }
+  }
 }
 
 function validateBundledKunRuntime(context) {
@@ -151,6 +193,7 @@ function prunePackedWhisperResources(context) {
 
 async function afterPack(context) {
   prunePackedKunDependencies(context)
+  materializePackedWorkspaceDependencies(context)
   validateBundledKunRuntime(context)
   prunePackedWhisperResources(context)
   ensureNodePtyHelpersExecutable(context)
@@ -164,6 +207,7 @@ exports._internals = {
   unpackedAppRoot,
   npmCommand,
   prunePackedKunDependencies,
+  materializePackedWorkspaceDependencies,
   validateBundledKunRuntime,
   normalizeArch,
   prunePackedWhisperResources,

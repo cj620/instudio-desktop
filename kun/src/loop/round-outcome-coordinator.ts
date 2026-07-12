@@ -137,6 +137,7 @@ export class RoundOutcomeCoordinator {
       this.toolDispatchInput(input, completedToolCalls, true)
     )
     if (dispatched === 'aborted') return 'aborted'
+    if (dispatched === 'budget_exhausted') return 'failed'
     if (dispatched === 'all_suppressed') {
       if (input.prepared.dedicatedSvgTurn) {
         const latestItems = await this.deps.sessionStore.loadItems(input.threadId)
@@ -230,6 +231,7 @@ export class RoundOutcomeCoordinator {
         this.toolDispatchInput(input, [call], false)
       )
       if (dispatched === 'aborted') return 'aborted'
+      if (dispatched === 'budget_exhausted') return 'failed'
       if (dispatched === 'all_suppressed') return 'stop'
       return 'continue'
     }
@@ -425,6 +427,7 @@ export class RoundOutcomeCoordinator {
       modelCapabilities: prepared.modelCapabilities,
       activeSkillIds: prepared.skillResolution.activeSkillIds,
       allowedToolNames: prepared.allowedToolNames,
+      extensionToolCatalogEpoch: prepared.extensionToolCatalogEpoch,
       toolProviderKinds: input.toolProviderKinds,
       approvalPolicy: prepared.approvalPolicy,
       sandboxMode: prepared.sandboxMode,

@@ -40,14 +40,14 @@ export class HybridThreadIndexRepository {
           id, title, workspace, model, mode, status, approval_policy, sandbox_mode,
           cost_budget_usd, cost_budget_warning_sent, relation, parent_thread_id,
           forked_from_thread_id, forked_from_title, forked_at, forked_from_message_count,
-          forked_from_turn_count, goal_json, todos_json, created_at, updated_at, created_at_ms,
+          forked_from_turn_count, goal_json, todos_json, extension_metadata_json, created_at, updated_at, created_at_ms,
           updated_at_ms, preview, message_count, event_seq_high_water, metadata_path,
           messages_path, events_path, search_text
         ) VALUES (
           @id, @title, @workspace, @model, @mode, @status, @approval_policy, @sandbox_mode,
           @cost_budget_usd, @cost_budget_warning_sent, @relation, @parent_thread_id,
           @forked_from_thread_id, @forked_from_title, @forked_at, @forked_from_message_count,
-          @forked_from_turn_count, @goal_json, @todos_json, @created_at, @updated_at, @created_at_ms,
+          @forked_from_turn_count, @goal_json, @todos_json, @extension_metadata_json, @created_at, @updated_at, @created_at_ms,
           @updated_at_ms, @preview, @message_count, @event_seq_high_water, @metadata_path,
           @messages_path, @events_path, @search_text
         ) ON CONFLICT(id) DO UPDATE SET
@@ -58,7 +58,8 @@ export class HybridThreadIndexRepository {
           forked_from_thread_id=excluded.forked_from_thread_id, forked_from_title=excluded.forked_from_title,
           forked_at=excluded.forked_at, forked_from_message_count=excluded.forked_from_message_count,
           forked_from_turn_count=excluded.forked_from_turn_count, goal_json=excluded.goal_json,
-          todos_json=excluded.todos_json, created_at=excluded.created_at, updated_at=excluded.updated_at,
+          todos_json=excluded.todos_json, extension_metadata_json=excluded.extension_metadata_json,
+          created_at=excluded.created_at, updated_at=excluded.updated_at,
           created_at_ms=excluded.created_at_ms, updated_at_ms=excluded.updated_at_ms,
           preview=excluded.preview, message_count=excluded.message_count,
           event_seq_high_water=MAX(threads.event_seq_high_water, excluded.event_seq_high_water),

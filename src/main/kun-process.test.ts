@@ -681,11 +681,13 @@ describe('syncGuiManagedKunConfig', () => {
       modelProxyUrl: 'socks5://127.0.0.1:1080'
     })
     expect(parsed.serve.providers?.custom).toMatchObject({
-      apiKey: 'sk-newapi',
+      apiKey: '',
+      credentialSourceId: 'settings:provider:custom',
       baseUrl: 'https://newapi.example/v1',
       endpointFormat: 'chat_completions',
       modelProxyUrl: 'socks5://127.0.0.1:1080'
     })
+    expect(JSON.stringify(parsed)).not.toContain('sk-newapi')
     expect(KunConfigSchema.safeParse(parsed).success).toBe(true)
   })
 

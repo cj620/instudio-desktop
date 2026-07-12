@@ -335,6 +335,7 @@ export class HybridThreadStore implements ThreadStore {
         forked_from_turn_count INTEGER,
         goal_json TEXT,
         todos_json TEXT,
+        extension_metadata_json TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         created_at_ms INTEGER NOT NULL,
@@ -370,6 +371,7 @@ export class HybridThreadStore implements ThreadStore {
         ON usage_events(timestamp);
     `)
     addColumnIfMissing(this.db, 'threads', 'todos_json TEXT')
+    addColumnIfMissing(this.db, 'threads', 'extension_metadata_json TEXT')
     addColumnIfMissing(this.db, 'threads', 'usage_backfilled INTEGER NOT NULL DEFAULT 0')
   }
 

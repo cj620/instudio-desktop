@@ -85,6 +85,7 @@ export const TurnSchema = z.object({
   prompt: z.string(),
   model: z.string().optional(),
   providerId: z.string().optional(),
+  accountId: z.string().min(1).optional(),
   reasoningEffort: TurnReasoningEffortSchema.optional(),
   /** Steered text queued by the user mid-turn. Cleared on completion. */
   steering: z.array(z.string()).default([]),
@@ -103,6 +104,10 @@ export const TurnSchema = z.object({
   toolCatalogFingerprint: z.string().optional(),
   toolCatalogToolCount: z.number().int().nonnegative().optional(),
   toolCatalogDrift: z.boolean().optional(),
+  /** Extension-run budget accounting persisted across runtime restarts. */
+  extensionBudgetTokenBaseline: z.number().int().nonnegative().optional(),
+  extensionModelRequests: z.number().int().nonnegative().optional(),
+  extensionToolInvocations: z.number().int().nonnegative().optional(),
   guiPlan: GuiPlanContextSchema.optional(),
   /**
    * True for renderer-owned design canvas turns. Kun advertises the
@@ -142,6 +147,7 @@ export const StartTurnRequest = z.object({
   messageSource: UserMessageSource.optional(),
   model: z.string().optional(),
   providerId: z.string().optional(),
+  accountId: z.string().min(1).optional(),
   reasoningEffort: TurnReasoningEffortSchema.optional(),
   approvalPolicy: ApprovalPolicySchema.optional(),
   sandboxMode: SandboxModeSchema.optional(),

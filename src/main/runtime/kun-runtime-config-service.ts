@@ -26,6 +26,8 @@ import {
   WebCapabilityConfig
 } from '../../../kun/src/contracts/capabilities.js'
 import {
+  DEFAULT_MODEL_PROVIDER_ID,
+  getKunRuntimeSettings,
   resolveKunRuntimeSettings,
   resolveModelProviderProxyUrl,
   type AppSettingsV1,
@@ -62,6 +64,10 @@ import {
   toolOutputLimitsConfigForRuntime
 } from './kun-runtime-model-config'
 import { subagentProfilesForRuntime } from './kun-runtime-subagent-config'
+import {
+  LEGACY_RUNTIME_OVERRIDE_SOURCE_ID,
+  legacyProviderCredentialSourceId
+} from '../legacy-provider-settings-migration'
 
 export type ManagedRuntimeHotApplyResult = 'applied' | 'restart_required' | 'failed'
 
@@ -99,13 +105,18 @@ export async function syncGuiManagedKunConfig(
   const defaultModelProxyUrl = options?.scheduleMcp?.settings
     ? resolveModelProviderProxyUrl(options.scheduleMcp.settings)
     : undefined
-  const defaultClientHeaders = resolveCodexOAuthApiKey(runtime.apiKey).headers
   const workflowHooks = buildWorkflowHookEntries(options?.scheduleMcp?.settings.workflow)
   const roles = rolesConfigForRuntime(runtime)
   const next = {
     serve: {
       ...serve,
       storage: storageConfigForRuntime(runtime.storage),
+      // Secrets and credential-derived headers are process-local only.
+      apiKey: undefined,
+      headers: undefined,
+      credentialSourceId: options?.scheduleMcp?.settings
+        ? defaultCredentialSourceId(options.scheduleMcp.settings)
+        : undefined,
       baseUrl: runtime.baseUrl.trim() || undefined,
       endpointFormat: runtime.endpointFormat,
       model: runtime.model.trim() || undefined,
@@ -113,7 +124,6 @@ export async function syncGuiManagedKunConfig(
       retry: runtime.retry,
       tokenEconomy: tokenEconomyConfigForRuntime(runtime.tokenEconomy, objectValue(serve.tokenEconomy)),
       toolOutputLimits: toolOutputLimitsConfigForRuntime(runtime.toolOutputLimits),
-      headers: defaultClientHeaders,
       ...(providers && Object.keys(providers).length ? { providers } : {})
     },
     models: modelConfigForRuntime(objectValue(existing?.models), runtime.modelProfiles),
@@ -176,14 +186,22 @@ export async function syncGuiManagedKunConfig(
   return parsed.data
 }
 
+function defaultCredentialSourceId(settings: AppSettingsV1): string {
+  const storedRuntime = getKunRuntimeSettings(settings)
+  if (storedRuntime.apiKey.trim()) return LEGACY_RUNTIME_OVERRIDE_SOURCE_ID
+  return legacyProviderCredentialSourceId(storedRuntime.providerId.trim() || DEFAULT_MODEL_PROVIDER_ID)
+}
+
 type KunRuntimeConfigSettings = Pick<KunRuntimeSettingsV1,
   'apiKey' | 'baseUrl' | 'endpointFormat' | 'model' | 'mcpSearch' | 'retry' |
   'tokenEconomy' | 'toolOutputLimits' | 'storage' | 'contextCompaction' |
   'runtimeTuning' | 'imageGeneration' | 'textToSpeech' | 'musicGeneration' |
   'videoGeneration' | 'computerUse' | 'modelProfiles' | 'memoryEnabled' |
   'instructions' | 'quality' | 'subagents' | 'smallModel' |
-  'smallModelProviderId' | 'titleModel' | 'titleProviderId' | 'summaryModel' |
-  'summaryProviderId' | 'codeReviewModel' | 'codeReviewProviderId'
+  'smallModelProviderId' | 'smallModelAccountId' |
+  'titleModel' | 'titleProviderId' | 'titleAccountId' |
+  'summaryModel' | 'summaryProviderId' | 'summaryAccountId' |
+  'codeReviewModel' | 'codeReviewProviderId' | 'codeReviewAccountId'
 >
 
 /** Pure request projection for the serve runtime's hot-config endpoint. */

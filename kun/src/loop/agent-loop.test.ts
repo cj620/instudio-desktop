@@ -131,6 +131,7 @@ class RoutedFailureModel implements ModelClient {
     baseUrl: 'https://chatgpt.example/codex',
     endpointFormat: 'custom_endpoint'
   }
+  request?: ModelRequest
 
   configFor(providerId?: string) {
     if (providerId !== 'deepseek') throw new Error(`unknown model provider: ${providerId}`)
@@ -141,7 +142,8 @@ class RoutedFailureModel implements ModelClient {
     }
   }
 
-  async *stream(_request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+  async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+    this.request = request
     yield* [] as ModelStreamChunk[]
     throw new Error('upstream transport failed')
   }
@@ -528,14 +530,16 @@ describe('AgentLoop interruption', () => {
       title: 'Routed child',
       workspace: '/tmp',
       model: 'deepseek-v4-pro',
-      providerId: 'deepseek'
+      providerId: 'deepseek',
+      accountId: 'account_extension'
     }))
     const started = await turns.startTurn({
       threadId,
       request: {
         prompt: 'fail accurately',
         model: 'deepseek-v4-pro',
-        providerId: 'deepseek'
+        providerId: 'deepseek',
+        accountId: 'account_extension'
       }
     })
 
@@ -546,6 +550,10 @@ describe('AgentLoop interruption', () => {
     expect(failed?.error).toContain('baseUrl=https://api.deepseek.com')
     expect(failed?.error).toContain('endpointFormat=chat_completions')
     expect(failed?.error).not.toContain('model=gpt-5.3-codex-spark')
+    expect(model.request).toMatchObject({
+      providerId: 'deepseek',
+      accountId: 'account_extension'
+    })
   })
 })
 

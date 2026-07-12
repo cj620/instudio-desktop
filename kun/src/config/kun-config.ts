@@ -278,6 +278,8 @@ export const ServeProviderConfigSchema = z
      */
     kind: z.enum(['http', 'agent-sdk']).default('http').optional(),
     apiKey: z.string().default(''),
+    /** Opaque binding key resolved through the protected account store. */
+    credentialSourceId: z.string().min(1).max(256).optional(),
     baseUrl: z.string().min(1).optional(),
     endpointFormat: z
       .preprocess(normalizeModelEndpointFormat, z.enum(MODEL_ENDPOINT_FORMATS))
@@ -306,6 +308,8 @@ export const KunServeConfigSchema = z
     dataDir: z.string().min(1).optional(),
     runtimeToken: z.string().optional(),
     apiKey: z.string().optional(),
+    /** Opaque binding key resolved through the protected account store. */
+    credentialSourceId: z.string().min(1).max(256).optional(),
     baseUrl: z.string().optional(),
     modelProxyUrl: z.string().optional(),
     endpointFormat: z.preprocess(
@@ -351,12 +355,16 @@ export const RolesConfigSchema = z
   .object({
     smallModel: z.string().min(1).optional(),
     smallModelProviderId: z.string().min(1).optional(),
+    smallModelAccountId: z.string().min(1).optional(),
     titleModel: z.string().min(1).optional(),
     titleProviderId: z.string().min(1).optional(),
+    titleAccountId: z.string().min(1).optional(),
     summaryModel: z.string().min(1).optional(),
     summaryProviderId: z.string().min(1).optional(),
+    summaryAccountId: z.string().min(1).optional(),
     codeReviewModel: z.string().min(1).optional(),
     codeReviewProviderId: z.string().min(1).optional(),
+    codeReviewAccountId: z.string().min(1).optional(),
     // Per-role reasoning depth. Default 'off' (the GUI omits it entirely).
     titleReasoningEffort: ModelReasoningEffort.optional(),
     summaryReasoningEffort: ModelReasoningEffort.optional(),

@@ -22,6 +22,7 @@ export type ModelRequestComposerInput = Readonly<{
   turnId: string
   model: string
   providerId?: string
+  accountId?: string
   reasoningEffort?: string
   immutablePrefix: ImmutablePrefix
   threadSystemPrompt?: string
@@ -55,6 +56,7 @@ export function composeModelRequest(input: ModelRequestComposerInput): ComposedM
     turnId: input.turnId,
     model: input.model,
     ...(input.providerId ? { providerId: input.providerId } : {}),
+    ...(input.accountId ? { accountId: input.accountId } : {}),
     // A thread persona augments Kun's stable runtime prompt. Whitespace-only
     // values retain the immutable prefix verbatim for prompt-cache stability.
     systemPrompt: persona

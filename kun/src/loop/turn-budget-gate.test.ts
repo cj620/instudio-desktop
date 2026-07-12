@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { InMemoryThreadStore } from '../adapters/in-memory-thread-store.js'
 import type { TurnItem } from '../contracts/items.js'
 import { createThreadRecord } from '../domain/thread.js'
+import { createTurnRecord, startTurn } from '../domain/turn.js'
 import type { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
 import type { TurnService } from '../services/turn-service.js'
 import type { UsageService } from '../services/usage-service.js'
@@ -10,7 +11,9 @@ import { TurnBudgetGate } from './turn-budget-gate.js'
 const threadId = 'thread_budget_gate'
 const turnId = 'turn_budget_gate'
 
-function harness(costUsd: number) {
+function harness(costUsd: number, totalTokens = 0) {
+  let currentCostUsd = costUsd
+  let currentTotalTokens = totalTokens
   const threadStore = new InMemoryThreadStore()
   const effects: string[] = []
   const items: TurnItem[] = []
@@ -30,10 +33,10 @@ function harness(costUsd: number) {
     forThread: () => ({
       promptTokens: 0,
       completionTokens: 0,
-      totalTokens: 0,
+      totalTokens: currentTotalTokens,
       cacheHitRate: null,
       turns: 0,
-      costUsd
+      costUsd: currentCostUsd
     })
   } satisfies Pick<UsageService, 'forThread'>
   const gate = new TurnBudgetGate({
@@ -43,7 +46,18 @@ function harness(costUsd: number) {
     usage,
     nowIso: () => '2026-07-11T00:00:00.000Z'
   })
-  return { gate, threadStore, effects, items, events, turns }
+  return {
+    gate,
+    threadStore,
+    effects,
+    items,
+    events,
+    turns,
+    setUsage: (next: { costUsd?: number; totalTokens?: number }) => {
+      if (next.costUsd !== undefined) currentCostUsd = next.costUsd
+      if (next.totalTokens !== undefined) currentTotalTokens = next.totalTokens
+    }
+  }
 }
 
 describe('TurnBudgetGate', () => {
@@ -102,4 +116,123 @@ describe('TurnBudgetGate', () => {
     await expect(h.gate.check(updated!, threadId, turnId)).resolves.toBe('allow')
     expect(h.effects).toEqual(['item:budget_warning', 'event:budget_warning'])
   })
+
+  it('enforces extension token budgets relative to the persisted run baseline', async () => {
+    const h = harness(0, 15)
+    const thread = createThreadRecord({
+      id: threadId,
+      title: 'extension budget',
+      workspace: '/',
+      model: 'm',
+      extensionBudget: extensionBudget()
+    })
+    thread.turns = [startTurn(createTurnRecord({
+      id: turnId,
+      threadId,
+      prompt: 'run',
+      extensionBudgetTokenBaseline: 5,
+      createdAt: '2026-07-11T00:00:00.000Z'
+    }), '2026-07-11T00:00:00.000Z')]
+    await h.threadStore.upsert(thread)
+
+    await expect(h.gate.check(thread, threadId, turnId)).resolves.toBe('blocked')
+    expect(h.effects).toEqual([
+      'item:extension_budget_exhausted',
+      'event:extension_budget_exhausted'
+    ])
+  })
+
+  it('persists the model-request count before an allowed extension request', async () => {
+    const h = harness(0, 4)
+    const thread = createThreadRecord({
+      id: threadId,
+      title: 'extension request count',
+      workspace: '/',
+      model: 'm',
+      extensionBudget: { ...extensionBudget(), maxTokens: 100 }
+    })
+    thread.turns = [{
+      ...startTurn(createTurnRecord({
+        id: turnId,
+        threadId,
+        prompt: 'run',
+        extensionBudgetTokenBaseline: 0,
+        createdAt: '2026-07-11T00:00:00.000Z'
+      }), '2026-07-11T00:00:00.000Z'),
+      extensionModelRequests: 1
+    }]
+    await h.threadStore.upsert(thread)
+
+    await expect(h.gate.check(thread, threadId, turnId)).resolves.toBe('allow')
+    expect((await h.threadStore.get(threadId))?.turns[0]?.extensionModelRequests).toBe(2)
+  })
+
+  it('atomically preserves concurrent main and compaction model-request reservations', async () => {
+    const h = harness(0)
+    const thread = createThreadRecord({
+      id: threadId,
+      title: 'atomic request count',
+      workspace: '/',
+      model: 'm',
+      extensionBudget: { ...extensionBudget(), maxTokens: 100 }
+    })
+    thread.turns = [startTurn(createTurnRecord({
+      id: turnId,
+      threadId,
+      prompt: 'run',
+      extensionBudgetTokenBaseline: 0,
+      createdAt: '2026-07-11T00:00:00.000Z'
+    }), '2026-07-11T00:00:00.000Z')]
+    await h.threadStore.upsert(thread)
+
+    const [main, compaction] = await Promise.all([
+      h.gate.check(thread, threadId, turnId),
+      h.gate.reserveAdditionalModelRequest(threadId, turnId)
+    ])
+
+    expect(main).toBe('allow')
+    expect(compaction.allowed).toBe(true)
+    expect((await h.threadStore.get(threadId))?.turns[0]?.extensionModelRequests).toBe(2)
+  })
+
+  it('rechecks auxiliary usage without consuming a second main-request reservation', async () => {
+    const h = harness(0)
+    const thread = createThreadRecord({
+      id: threadId,
+      title: 'post-compaction budget',
+      workspace: '/',
+      model: 'm',
+      extensionBudget: extensionBudget()
+    })
+    thread.turns = [startTurn(createTurnRecord({
+      id: turnId,
+      threadId,
+      prompt: 'run',
+      extensionBudgetTokenBaseline: 0,
+      createdAt: '2026-07-11T00:00:00.000Z'
+    }), '2026-07-11T00:00:00.000Z')]
+    await h.threadStore.upsert(thread)
+
+    await expect(h.gate.check(thread, threadId, turnId)).resolves.toBe('allow')
+    expect((await h.threadStore.get(threadId))?.turns[0]?.extensionModelRequests).toBe(1)
+
+    h.setUsage({ totalTokens: 10 })
+    await expect(h.gate.recheckReservedMainModelRequest(threadId, turnId)).resolves.toBe('blocked')
+    expect((await h.threadStore.get(threadId))?.turns[0]?.extensionModelRequests).toBe(1)
+    expect(h.effects).toEqual([
+      'item:extension_budget_exhausted',
+      'event:extension_budget_exhausted'
+    ])
+  })
 })
+
+function extensionBudget() {
+  return {
+    maxTokens: 10,
+    maxElapsedMs: 60_000,
+    maxConcurrentRuns: 1,
+    maxModelRequests: 2,
+    maxToolInvocations: 2,
+    maxRetainedEvents: 100
+  }
+}

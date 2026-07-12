@@ -8,6 +8,10 @@ import { makeAssistantTextItem, makeToolCallItem, makeToolResultItem } from '../
 import { encodeSseEvent } from '../src/server/sse.js'
 import { buildHarness, readJson, readSseEvents, usageSnapshot } from './http-server-test-harness.js'
 import type { TurnItem } from '../src/contracts/items.js'
+import {
+  createApprovalConsentToken,
+  KUN_APPROVAL_CONSENT_HEADER
+} from '../src/server/approval-consent.js'
 
 describe('HTTP server', () => {
   let dataDir = ''
@@ -1003,11 +1007,30 @@ describe('HTTP server', () => {
       summary: 'run echo'
     })
     const pending = h.approvalGate.request(approval)
-    const decide = await dispatchRequest(
+    const consent = (decision: 'allow' | 'deny') => createApprovalConsentToken({
+      runtimeToken: 'tok-1',
+      approvalId: 'appr_1',
+      decision,
+      expiresAt: Date.now() + 30_000
+    })
+    const missingConsent = await dispatchRequest(
       h.router,
       new Request('http://localhost/v1/approvals/appr_1', {
         method: 'POST',
         headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ decision: 'allow' })
+      })
+    )
+    expect(missingConsent.status).toBe(403)
+    const decide = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/approvals/appr_1', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer tok-1',
+          'content-type': 'application/json',
+          [KUN_APPROVAL_CONSENT_HEADER]: consent('allow')
+        },
         body: JSON.stringify({ decision: 'allow' })
       })
     )
@@ -1020,7 +1043,11 @@ describe('HTTP server', () => {
       h.router,
       new Request('http://localhost/v1/approvals/appr_1', {
         method: 'POST',
-        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        headers: {
+          authorization: 'Bearer tok-1',
+          'content-type': 'application/json',
+          [KUN_APPROVAL_CONSENT_HEADER]: consent('allow')
+        },
         body: JSON.stringify({ decision: 'allow' })
       })
     )
@@ -1034,7 +1061,11 @@ describe('HTTP server', () => {
       h.router,
       new Request('http://localhost/v1/approvals/appr_1', {
         method: 'POST',
-        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        headers: {
+          authorization: 'Bearer tok-1',
+          'content-type': 'application/json',
+          [KUN_APPROVAL_CONSENT_HEADER]: consent('deny')
+        },
         body: JSON.stringify({ decision: 'deny' })
       })
     )

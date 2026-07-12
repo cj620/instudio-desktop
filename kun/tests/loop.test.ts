@@ -2658,6 +2658,201 @@ describe('AgentLoop', () => {
       .toContain('Model summary: preserve alpha.txt')
   })
 
+  it('uses heuristic compaction when an extension run with budget 1 has reserved its main request', async () => {
+    const requests: ModelRequest[] = []
+    const h = makeHarness(
+      {
+        provider: 'budget-one',
+        model: 'budget-one',
+        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+          requests.push(request)
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      {
+        compactor: new ContextCompactor({ softThreshold: 8, hardThreshold: 16 }),
+        contextCompaction: { summaryMode: 'model', summaryTimeoutMs: 5_000 }
+      }
+    )
+    await bootstrapThread(h)
+    const thread = await h.threadStore.get(h.threadId)
+    if (!thread) throw new Error('expected extension budget thread')
+    await h.threadStore.upsert({
+      ...thread,
+      ownerExtensionId: 'acme.budget-one',
+      extensionBudget: {
+        maxTokens: 1_000_000,
+        maxElapsedMs: 60_000,
+        maxConcurrentRuns: 1,
+        maxModelRequests: 1,
+        maxToolInvocations: 10,
+        maxRetainedEvents: 1_000
+      },
+      turns: thread.turns.map((turn) =>
+        turn.id === h.turnId
+          ? { ...turn, extensionBudgetTokenBaseline: 0, extensionModelRequests: 0 }
+          : turn
+      )
+    })
+    for (let index = 0; index < 10; index += 1) {
+      await h.sessionStore.appendItem(h.threadId, makeUserItem({
+        id: `budget_one_history_${index}`,
+        turnId: h.turnId,
+        threadId: h.threadId,
+        text: `private budget one history ${index} ${'x'.repeat(24)}`
+      }))
+    }
+
+    await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('completed')
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.systemPrompt).not.toBe(COMPACTION_SYSTEM_PROMPT)
+    expect((await h.threadStore.get(h.threadId))?.turns[0]?.extensionModelRequests).toBe(1)
+    const items = await h.sessionStore.loadItems(h.threadId)
+    expect(items).toContainEqual(expect.objectContaining({
+      kind: 'compaction',
+      summary: expect.stringContaining('Conversation and work summary:')
+    }))
+    const events = await h.sessionStore.loadEventsSince(h.threadId, 0)
+    expect(events).toContainEqual(expect.objectContaining({
+      kind: 'error',
+      code: 'compaction_summary_fallback',
+      message: expect.stringContaining('model-request budget exhausted')
+    }))
+  })
+
+  it('atomically charges summary and main requests to an extension run with budget 2', async () => {
+    const requests: ModelRequest[] = []
+    const h = makeHarness(
+      {
+        provider: 'budget-two',
+        model: 'budget-two',
+        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+          requests.push(request)
+          if (request.systemPrompt === COMPACTION_SYSTEM_PROMPT) {
+            yield { kind: 'assistant_text_delta', text: 'budget two model summary' }
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      {
+        compactor: new ContextCompactor({ softThreshold: 8, hardThreshold: 16 }),
+        contextCompaction: { summaryMode: 'model', summaryTimeoutMs: 5_000 }
+      }
+    )
+    await bootstrapThread(h)
+    const thread = await h.threadStore.get(h.threadId)
+    if (!thread) throw new Error('expected extension budget thread')
+    await h.threadStore.upsert({
+      ...thread,
+      ownerExtensionId: 'acme.budget-two',
+      extensionBudget: {
+        maxTokens: 1_000_000,
+        maxElapsedMs: 60_000,
+        maxConcurrentRuns: 1,
+        maxModelRequests: 2,
+        maxToolInvocations: 10,
+        maxRetainedEvents: 1_000
+      },
+      turns: thread.turns.map((turn) =>
+        turn.id === h.turnId
+          ? { ...turn, extensionBudgetTokenBaseline: 0, extensionModelRequests: 0 }
+          : turn
+      )
+    })
+    for (let index = 0; index < 10; index += 1) {
+      await h.sessionStore.appendItem(h.threadId, makeUserItem({
+        id: `budget_two_history_${index}`,
+        turnId: h.turnId,
+        threadId: h.threadId,
+        text: `private budget two history ${index} ${'x'.repeat(24)}`
+      }))
+    }
+
+    await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('completed')
+
+    expect(requests).toHaveLength(2)
+    expect(requests[0]?.systemPrompt).toBe(COMPACTION_SYSTEM_PROMPT)
+    expect(requests[1]?.systemPrompt).not.toBe(COMPACTION_SYSTEM_PROMPT)
+    expect((await h.threadStore.get(h.threadId))?.turns[0]?.extensionModelRequests).toBe(2)
+    const items = await h.sessionStore.loadItems(h.threadId)
+    expect(items).toContainEqual(expect.objectContaining({
+      kind: 'compaction',
+      summary: expect.stringContaining('budget two model summary')
+    }))
+  })
+
+  it('does not send a reserved main request after compaction exhausts the extension token budget', async () => {
+    const requests: ModelRequest[] = []
+    const h = makeHarness(
+      {
+        provider: 'budget-summary-tokens',
+        model: 'budget-summary-tokens',
+        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+          requests.push(request)
+          if (request.systemPrompt === COMPACTION_SYSTEM_PROMPT) {
+            yield { kind: 'assistant_text_delta', text: 'summary consumed the remaining token budget' }
+            yield {
+              kind: 'usage',
+              usage: {
+                promptTokens: 8,
+                completionTokens: 4,
+                totalTokens: 12,
+                cacheHitRate: null,
+                turns: 1
+              }
+            }
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      {
+        compactor: new ContextCompactor({ softThreshold: 8, hardThreshold: 16 }),
+        contextCompaction: { summaryMode: 'model', summaryTimeoutMs: 5_000 }
+      }
+    )
+    await bootstrapThread(h)
+    const thread = await h.threadStore.get(h.threadId)
+    if (!thread) throw new Error('expected extension budget thread')
+    await h.threadStore.upsert({
+      ...thread,
+      ownerExtensionId: 'acme.budget-summary-tokens',
+      extensionBudget: {
+        maxTokens: 10,
+        maxElapsedMs: 60_000,
+        maxConcurrentRuns: 1,
+        maxModelRequests: 2,
+        maxToolInvocations: 10,
+        maxRetainedEvents: 1_000
+      },
+      turns: thread.turns.map((turn) =>
+        turn.id === h.turnId
+          ? { ...turn, extensionBudgetTokenBaseline: 0, extensionModelRequests: 0 }
+          : turn
+      )
+    })
+    for (let index = 0; index < 10; index += 1) {
+      await h.sessionStore.appendItem(h.threadId, makeUserItem({
+        id: `budget_summary_tokens_history_${index}`,
+        turnId: h.turnId,
+        threadId: h.threadId,
+        text: `token budget history ${index} ${'x'.repeat(24)}`
+      }))
+    }
+
+    await expect(h.loop.runTurn(h.threadId, h.turnId)).resolves.toBe('completed')
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.systemPrompt).toBe(COMPACTION_SYSTEM_PROMPT)
+    expect((await h.threadStore.get(h.threadId))?.turns[0]?.extensionModelRequests).toBe(2)
+    const items = await h.sessionStore.loadItems(h.threadId)
+    expect(items).toContainEqual(expect.objectContaining({
+      kind: 'error',
+      code: 'extension_budget_exhausted',
+      message: expect.stringContaining('token budget exhausted')
+    }))
+  })
+
   it('records a visible fallback event when configured model compaction summaries fail', async () => {
     const requests: ModelRequest[] = []
     const h = makeHarness(
@@ -3036,7 +3231,7 @@ describe('AgentLoop', () => {
     expect(replay.some((event) => event.kind === 'usage')).toBe(true)
   })
 
-  it('persists assistant text deltas for SSE replay before the final item', async () => {
+  it('persists coalesced assistant text deltas for SSE replay before the final item', async () => {
     const h = makeHarness(
       makeFakeModel([
         { kind: 'assistant_text_delta', text: 'he' },
@@ -3048,7 +3243,12 @@ describe('AgentLoop', () => {
     await h.loop.runTurn(h.threadId, h.turnId)
     const replay = await h.sessionStore.loadEventsSince(h.threadId, 0)
     const deltas = replay.filter((event) => event.kind === 'assistant_text_delta')
-    expect(deltas).toHaveLength(2)
+    expect(deltas).toHaveLength(1)
+    expect(deltas[0]).toMatchObject({ item: { text: 'hello', status: 'running' } })
+    const finalItemEvent = replay.find((event) =>
+      event.kind === 'item_created' && event.item.kind === 'assistant_text'
+    )
+    expect(finalItemEvent?.seq).toBeGreaterThan(deltas[0]!.seq)
     const items = await h.sessionStore.loadItems(h.threadId)
     expect(items.some((item) => item.kind === 'assistant_text' && item.text === 'hello')).toBe(true)
   })

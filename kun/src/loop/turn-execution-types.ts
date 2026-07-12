@@ -34,7 +34,7 @@ export type TurnExecutionFailure = {
 export type ModelRoundOutcome = 'continue' | 'stop' | 'failed' | 'aborted'
 
 /** Outcome returned after the ordered tool-dispatch stage. */
-export type ToolDispatchOutcome = 'continue' | 'aborted' | 'all_suppressed'
+export type ToolDispatchOutcome = 'continue' | 'aborted' | 'all_suppressed' | 'budget_exhausted'
 
 export type ResolvedTurnAttachments = Readonly<{
   imageAttachments: readonly ModelInputAttachment[]
@@ -72,6 +72,7 @@ export type PreparedTurnContext = Readonly<{
   activeTodoInstruction: string | null
   planTurnActive: boolean
   allowedToolNames?: readonly string[]
+  extensionToolCatalogEpoch?: ToolHostContext['extensionToolCatalogEpoch']
   userInputDisabled: boolean
   toolDiscoveryContext: ToolHostContext
   tools: readonly DiscoveredTool[]
@@ -95,6 +96,7 @@ export type ToolTurnContextInput = {
   modelCapabilities: ModelCapabilityMetadata
   activeSkillIds: readonly string[]
   allowedToolNames?: readonly string[]
+  extensionToolCatalogEpoch?: ToolHostContext['extensionToolCatalogEpoch']
   userInputDisabled?: boolean
   imContext?: boolean
   approvalPolicy: ToolHostContext['approvalPolicy']

@@ -36,6 +36,7 @@ type Harness = {
     setThreadGoal: ReturnType<typeof vi.fn>
     clearThreadGoal: ReturnType<typeof vi.fn>
     interruptTurn: ReturnType<typeof vi.fn>
+    submitApprovalDecision: ReturnType<typeof vi.fn>
     forkThread: ReturnType<typeof vi.fn>
     rewindThread: ReturnType<typeof vi.fn>
   }
@@ -109,6 +110,7 @@ function buildHarness(options: {
     ),
     clearThreadGoal: vi.fn(async () => true),
     interruptTurn: vi.fn(async () => undefined),
+    submitApprovalDecision: vi.fn(async () => 'submitted' as const),
     rewindThread: vi.fn(async () => undefined),
     forkThread: vi.fn(async (
       threadId: string,
@@ -502,6 +504,27 @@ describe('chat-store-maintenance-actions goal actions', () => {
     expect(state.activeThreadGoal).toBeNull()
     expect(state.threads[0]?.goal).toBeNull()
     expect(refreshThreads).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores a pending approval when the protected native prompt is cancelled', async () => {
+    const { actions, provider, state } = buildHarness()
+    provider.submitApprovalDecision.mockResolvedValueOnce('cancelled')
+    state.blocks = [{
+      kind: 'approval',
+      id: 'approval-cancelled',
+      approvalId: 'appr_cancelled',
+      summary: 'Approve command',
+      status: 'pending'
+    }]
+
+    await actions.resolveApproval('approval-cancelled', 'allow')
+
+    expect(provider.submitApprovalDecision).toHaveBeenCalledWith(
+      'appr_cancelled',
+      'allow',
+      true
+    )
+    expect(state.blocks[0]).toMatchObject({ status: 'pending' })
   })
 
   it('settles local runtime work before the backend interrupt resolves', async () => {

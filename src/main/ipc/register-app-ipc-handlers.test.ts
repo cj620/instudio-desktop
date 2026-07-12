@@ -18,14 +18,19 @@ import {
   type AppSettingsV1
 } from '../../shared/app-settings'
 import { registerAppIpcHandlers } from './register-app-ipc-handlers'
+import {
+  ApprovalConsentVerifier,
+  KUN_APPROVAL_CONSENT_HEADER
+} from '../../../kun/src/server/approval-consent.js'
 
 const handlers = new Map<string, (event: unknown, payload?: unknown) => Promise<unknown>>()
+const electronMock = vi.hoisted(() => ({ showMessageBox: vi.fn() }))
 
 vi.mock('electron', () => ({
   app: {
     quit: vi.fn()
   },
-  dialog: {},
+  dialog: { showMessageBox: electronMock.showMessageBox },
   shell: {},
   ipcMain: {
     handle: vi.fn((channel: string, handler: (event: unknown, payload?: unknown) => Promise<unknown>) => {
@@ -96,6 +101,7 @@ function registerOptions(overrides: Partial<Parameters<typeof import('./register
 describe('registerAppIpcHandlers', () => {
   beforeEach(() => {
     handlers.clear()
+    electronMock.showMessageBox.mockReset()
   })
 
   it('rejects invalid settings patches at the handler boundary', async () => {
@@ -127,6 +133,89 @@ describe('registerAppIpcHandlers', () => {
     const handler = handlers.get('settings:set')
     await expect(handler?.({}, payload)).resolves.toEqual(settings())
     expect(applySettingsPatch).toHaveBeenCalledWith(payload)
+  })
+
+  it('does not persist a renderer-requested bypass mode without protected native consent', async () => {
+    const current = settings()
+    const mainFrame = { processId: 10, routingId: 20 }
+    const contents = { id: 7, mainFrame }
+    const mainWindow = { isDestroyed: () => false, webContents: contents }
+    const applySettingsPatch = vi.fn(async () => settings())
+    const saveSettingsPatch = vi.fn(async () => settings())
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => current) } as never,
+      getMainWindow: () => mainWindow as never,
+      applySettingsPatch,
+      saveSettingsPatch
+    }))
+    const payload = {
+      agents: { kun: { approvalPolicy: 'auto' as const, sandboxMode: 'danger-full-access' as const } }
+    }
+    const trustedEvent = { sender: contents, senderFrame: mainFrame }
+
+    await expect(handlers.get('settings:set')?.({
+      sender: { id: 99 },
+      senderFrame: { processId: 90, routingId: 91 }
+    }, payload)).rejects.toThrow(/trusted workbench frame/)
+    expect(applySettingsPatch).not.toHaveBeenCalled()
+
+    // A Direct DOM synthetic click can at most make the trusted renderer send
+    // this request. Cancelling the Main-owned prompt leaves settings unchanged.
+    electronMock.showMessageBox.mockResolvedValueOnce({ response: 1 })
+    await expect(handlers.get('settings:set')?.(trustedEvent, payload)).resolves.toBe(current)
+    expect(applySettingsPatch).not.toHaveBeenCalled()
+
+    electronMock.showMessageBox.mockResolvedValueOnce({ response: 0 })
+    await handlers.get('settings:set')?.(trustedEvent, payload)
+    expect(applySettingsPatch).toHaveBeenCalledWith(payload)
+
+    electronMock.showMessageBox.mockResolvedValueOnce({ response: 1 })
+    await handlers.get('settings:save-silent')?.(trustedEvent, payload)
+    expect(saveSettingsPatch).not.toHaveBeenCalled()
+  })
+
+  it('requires a trusted workbench sender and native confirmation for user approvals', async () => {
+    const current = settings()
+    current.agents.kun.runtimeToken = 'approval-runtime-secret'
+    const mainFrame = { processId: 10, routingId: 20 }
+    const contents = { id: 7, mainFrame }
+    const mainWindow = { isDestroyed: () => false, webContents: contents }
+    const runtimeRequest = vi.fn(async (
+      _path: string,
+      _method?: string,
+      _body?: string,
+      _headers?: Record<string, string>
+    ) => ({ ok: true, status: 200, body: '{}' }))
+    registerAppIpcHandlers(registerOptions({
+      store: { load: vi.fn(async () => current) } as never,
+      getMainWindow: () => mainWindow as never,
+      runtimeRequest
+    }))
+    const handler = handlers.get('approval:decide')!
+    const payload = { approvalId: 'approval-1', decision: 'allow', source: 'user' }
+
+    await expect(handler({
+      sender: { id: 99 },
+      senderFrame: { processId: 90, routingId: 91 }
+    }, payload)).rejects.toThrow(/trusted workbench frame/)
+    expect(runtimeRequest).not.toHaveBeenCalled()
+
+    electronMock.showMessageBox.mockResolvedValueOnce({ response: 1 })
+    await expect(handler({ sender: contents, senderFrame: mainFrame }, payload))
+      .resolves.toEqual({ confirmed: false })
+    expect(runtimeRequest).not.toHaveBeenCalled()
+
+    electronMock.showMessageBox.mockResolvedValueOnce({ response: 0 })
+    await expect(handler({ sender: contents, senderFrame: mainFrame }, payload))
+      .resolves.toMatchObject({ confirmed: true, response: { ok: true } })
+    const headers = runtimeRequest.mock.calls[0]?.[3] as Record<string, string>
+    const consent = headers[KUN_APPROVAL_CONSENT_HEADER]
+    expect(consent).toMatch(/^v1\./)
+    expect(new ApprovalConsentVerifier('approval-runtime-secret').verifyAndConsume({
+      token: consent,
+      approvalId: 'approval-1',
+      decision: 'allow'
+    })).toBe(true)
   })
 
   it('accepts checkpoint cleanup settings patches', async () => {

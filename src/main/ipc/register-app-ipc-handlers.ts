@@ -1,4 +1,12 @@
-import { app, dialog, ipcMain, shell, type BrowserWindow, type WebContents } from 'electron'
+import {
+  app,
+  dialog,
+  ipcMain,
+  shell,
+  type BrowserWindow,
+  type IpcMainInvokeEvent,
+  type WebContents
+} from 'electron'
 import { watch, type FSWatcher } from 'node:fs'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
@@ -6,6 +14,7 @@ import { basename, dirname, extname, join, resolve } from 'node:path'
 import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import {
+  getKunRuntimeSettings,
   type AppSettingsPatch,
   type AppSettingsV1,
   type ClawRunResult,
@@ -64,6 +73,7 @@ import {
   worktreeOptionalRootSchema,
   worktreePathSchema,
   runtimeRequestPayloadSchema,
+  kunProtectedApprovalPayloadSchema,
   scheduleTaskFromTextPayloadSchema,
   shellOpenExternalUrlSchema,
   skillGithubImportPayloadSchema,
@@ -103,6 +113,16 @@ import {
   workspaceRootSchema,
   legacySessionImportPayloadSchema
 } from './app-ipc-schemas'
+import {
+  createApprovalConsentToken,
+  KUN_APPROVAL_CONSENT_HEADER
+} from '../approval-consent'
+import {
+  KunExecutionSettingsConsentService,
+  executionSettingsEqual,
+  kunExecutionSettingsChange,
+  type KunExecutionSettingsConsentAction
+} from '../execution-settings-consent'
 import {
   DEFAULT_KUN_DATA_DIR,
   resolveKunRuntimeSettings,
@@ -242,7 +262,8 @@ type RegisterAppIpcHandlersOptions = {
   runtimeRequest: (
     path: string,
     method?: string,
-    body?: string
+    body?: string,
+    headers?: Record<string, string>
   ) => Promise<RuntimeRequestResult>
   restartRuntime: () => Promise<void>
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
@@ -270,6 +291,26 @@ function parseIpcPayload<T>(channel: string, schema: z.ZodType<T>, payload: unkn
   if (parsed.success) return parsed.data
   const issue = parsed.error.issues[0]
   throw new Error(`Invalid payload for ${channel}: ${issue?.message ?? 'Bad request.'}`)
+}
+
+function assertTrustedWorkbenchSender(
+  event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>,
+  getMainWindow: () => BrowserWindow | null
+): void {
+  const window = getMainWindow()
+  const senderFrame = event.senderFrame
+  const mainFrame = window?.webContents.mainFrame
+  if (
+    !window ||
+    window.isDestroyed() ||
+    event.sender.id !== window.webContents.id ||
+    !senderFrame ||
+    !mainFrame ||
+    senderFrame.processId !== mainFrame.processId ||
+    senderFrame.routingId !== mainFrame.routingId
+  ) {
+    throw new Error('Approval IPC sender is not the trusted workbench frame.')
+  }
 }
 
 // node:fs/promises 没有内置 pathExists;用 access 实现。
@@ -456,6 +497,67 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   })
   const workspaceFileWatchers = new Map<string, WorkspaceFileWatchRecord>()
   const workspaceFileWatchSenders = new Map<number, WorkspaceFileWatchSenderRecord>()
+  const executionSettingsConsents = new KunExecutionSettingsConsentService()
+
+  const applyProtectedSettingsPatch = async (
+    event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>,
+    partial: AppSettingsPatch,
+    persist: (patch: AppSettingsPatch) => Promise<AppSettingsV1>
+  ): Promise<AppSettingsV1> => {
+    const current = await store.load()
+    const change = kunExecutionSettingsChange(current, partial)
+    if (!change) return persist(partial)
+
+    assertTrustedWorkbenchSender(event, getMainWindow)
+    const parent = getMainWindow()
+    const senderFrame = event.senderFrame
+    if (!parent || parent.isDestroyed() || !senderFrame) {
+      throw new Error('Protected execution-settings window is unavailable.')
+    }
+    const confirmation = await dialog.showMessageBox(parent, {
+      type: 'warning',
+      title: 'Change Kun execution permissions',
+      message: 'Apply this tool approval and sandbox configuration?',
+      detail: [
+        `Current approval policy: ${change.current.approvalPolicy}`,
+        `Current sandbox: ${change.current.sandboxMode}`,
+        `New approval policy: ${change.next.approvalPolicy}`,
+        `New sandbox: ${change.next.sandboxMode}`,
+        '',
+        'This protected native prompt cannot be confirmed by extension Webviews or Direct DOM content scripts.'
+      ].join('\n'),
+      buttons: ['Apply change', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+      normalizeAccessKeys: true
+    })
+    if (confirmation.response !== 0) return current
+
+    // Fail closed if another settings write raced the native decision. The
+    // consent is for one exact transition, not whichever values are current
+    // when the dialog eventually closes.
+    const latest = await store.load()
+    const latestExecution = {
+      approvalPolicy: latest.agents.kun.approvalPolicy,
+      sandboxMode: latest.agents.kun.sandboxMode
+    }
+    if (!executionSettingsEqual(latestExecution, change.current)) {
+      throw new Error('Kun execution settings changed while confirmation was open; retry the change.')
+    }
+
+    const action: KunExecutionSettingsConsentAction = {
+      ...change,
+      senderId: event.sender.id,
+      senderProcessId: senderFrame.processId,
+      senderRoutingId: senderFrame.routingId
+    }
+    const consent = executionSettingsConsents.issue(action)
+    if (!executionSettingsConsents.consume(consent, action)) {
+      throw new Error('Protected execution-settings consent is invalid or expired.')
+    }
+    return persist(partial)
+  }
 
   const releaseWorkspaceFileWatchSender = (sender: WebContents): void => {
     const stillUsed = Array.from(workspaceFileWatchers.values()).some(
@@ -594,20 +696,66 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       binaryPath: claudeSubBinary()
     })
   )
-  ipcMain.handle('settings:set', async (_, partial: unknown) =>
-    applySettingsPatch(
-      parseIpcPayload('settings:set', settingsPatchSchema, partial) as AppSettingsPatch
-    )
-  )
-  ipcMain.handle('settings:save-silent', async (_, partial: unknown) =>
-    saveSettingsPatch(
-      parseIpcPayload('settings:save-silent', settingsPatchSchema, partial) as AppSettingsPatch
-    )
-  )
+  ipcMain.handle('settings:set', async (event, partial: unknown) =>
+    applyProtectedSettingsPatch(
+      event,
+      parseIpcPayload('settings:set', settingsPatchSchema, partial) as AppSettingsPatch,
+      applySettingsPatch
+    ))
+  ipcMain.handle('settings:save-silent', async (event, partial: unknown) =>
+    applyProtectedSettingsPatch(
+      event,
+      parseIpcPayload('settings:save-silent', settingsPatchSchema, partial) as AppSettingsPatch,
+      saveSettingsPatch
+    ))
 
   ipcMain.handle('runtime:request', async (_, payload: unknown) => {
     const request = parseIpcPayload('runtime:request', runtimeRequestPayloadSchema, payload)
     return runtimeRequest(request.path, request.method, request.body)
+  })
+
+  ipcMain.handle('approval:decide', async (event, payload: unknown) => {
+    assertTrustedWorkbenchSender(event, getMainWindow)
+    const request = parseIpcPayload(
+      'approval:decide',
+      kunProtectedApprovalPayloadSchema,
+      payload
+    )
+    if (request.source === 'user') {
+      const parent = getMainWindow()
+      if (!parent || parent.isDestroyed()) throw new Error('Protected approval window is unavailable.')
+      const allow = request.decision === 'allow'
+      const confirmation = await dialog.showMessageBox(parent, {
+        type: 'warning',
+        title: allow ? 'Approve tool action' : 'Deny tool action',
+        message: allow
+          ? 'Allow this pending Kun tool action once?'
+          : 'Deny this pending Kun tool action?',
+        detail: `Approval: ${request.approvalId}\n\nThis protected native prompt cannot be controlled by extension Webviews or Direct DOM content scripts.`,
+        buttons: [allow ? 'Allow once' : 'Deny', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+        normalizeAccessKeys: true
+      })
+      if (confirmation.response !== 0) return { confirmed: false as const }
+    }
+
+    const settings = await store.load()
+    const runtimeToken = getKunRuntimeSettings(settings).runtimeToken.trim()
+    const consentToken = createApprovalConsentToken({
+      runtimeToken,
+      approvalId: request.approvalId,
+      decision: request.decision,
+      expiresAt: Date.now() + 30_000
+    })
+    const response = await runtimeRequest(
+      `/v1/approvals/${encodeURIComponent(request.approvalId)}`,
+      'POST',
+      JSON.stringify({ decision: request.decision }),
+      { [KUN_APPROVAL_CONSENT_HEADER]: consentToken }
+    )
+    return { confirmed: true as const, response }
   })
 
   ipcMain.handle('runtime:restart', async () => restartRuntime())

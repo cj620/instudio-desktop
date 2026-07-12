@@ -31,12 +31,13 @@ describe('ModelRoutingService', () => {
     const routing = new ModelRoutingService(model)
     const input = {
       threadId: 'thread_1', turnId: 'turn_1', latestRequest: 'refactor this architecture', items: [],
-      signal: new AbortController().signal, candidates: ['auto']
+      signal: new AbortController().signal, providerId: 'provider_1', accountId: 'account_1', candidates: ['auto']
     }
 
     await expect(routing.resolve(input)).resolves.toEqual({ model: 'deepseek-v4-pro', reasoningEffort: 'max' })
     await expect(routing.resolve(input)).resolves.toEqual({ model: 'deepseek-v4-pro', reasoningEffort: 'max' })
     expect(model.requests).toHaveLength(1)
+    expect(model.requests[0]).toMatchObject({ providerId: 'provider_1', accountId: 'account_1' })
     routing.clear('thread_1', 'turn_1')
     await routing.resolve(input)
     expect(model.requests).toHaveLength(2)

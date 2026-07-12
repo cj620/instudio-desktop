@@ -51,6 +51,7 @@ export const ServeOptionsSchema = z.object({
   dataDir: z.string().min(1),
   runtimeToken: z.string().default(''),
   apiKey: z.string().default(''),
+  credentialSourceId: z.string().min(1).max(256).optional(),
   baseUrl: z.string().default('https://api.deepseek.com/beta'),
   modelProxyUrl: z.string().default(''),
   endpointFormat: z.preprocess(normalizeModelEndpointFormat, z.enum(MODEL_ENDPOINT_FORMATS)).default(DEFAULT_MODEL_ENDPOINT_FORMAT),

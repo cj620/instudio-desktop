@@ -257,6 +257,7 @@ export class AgentLoop {
       events: opts.events,
       ids: opts.ids,
       telemetry: this.telemetry,
+      recordGoalUsage: (threadId, tokens) => this.recordGoalUsage(threadId, tokens),
       getContextCompaction: () => opts.contextCompaction,
       getHooks: () => opts.hooks,
       clearReadTracker: (threadId?: string) => opts.toolHost.clearReadTracker?.(threadId),
@@ -428,6 +429,7 @@ export class AgentLoop {
       const settlement = await settle({ status: 'aborted' })
       return statusFromSettlement(settlement, 'aborted')
     }
+    const owningThread = await this.opts.threadStore.get(threadId)
     // Subscription engine dispatch: if a Claude Agent SDK runtime owns this
     // thread's provider, delegate the whole turn to it (the SDK runs the loop on
     // the user's subscription; kun's brain is injected). All other providers
@@ -435,9 +437,8 @@ export class AgentLoop {
     const sdkRuntime = this.opts.sdkRuntime
     let delegatedSdkRuntime: AgentSdkRuntime | undefined
     if (sdkRuntime) {
-      const thread = await this.opts.threadStore.get(threadId)
-      const turn = thread?.turns.find((candidate) => candidate.id === turnId)
-      const providerId = turn?.providerId?.trim() || thread?.providerId?.trim()
+      const turn = owningThread?.turns.find((candidate) => candidate.id === turnId)
+      const providerId = turn?.providerId?.trim() || owningThread?.providerId?.trim()
       if (sdkRuntime.handlesProvider(providerId)) {
         delegatedSdkRuntime = sdkRuntime
       }
@@ -446,7 +447,10 @@ export class AgentLoop {
     // runtime deadline from a user cancellation. Starting this native timer
     // for the delegated path races that SDK timer and turns deadline failures
     // into misleading `aborted` turns.
-    const maxWallTimeMs = normalizeTurnLimits(this.opts.turnLimits).maxWallTimeMs
+    const configuredWallTimeMs = normalizeTurnLimits(this.opts.turnLimits).maxWallTimeMs
+    const maxWallTimeMs = owningThread?.extensionBudget
+      ? Math.min(configuredWallTimeMs, owningThread.extensionBudget.maxElapsedMs)
+      : configuredWallTimeMs
     let wallTimeExceeded = false
     let deadline: ReturnType<typeof setTimeout> | undefined
     if (!delegatedSdkRuntime) {
@@ -462,17 +466,23 @@ export class AgentLoop {
     let finalStatus: 'completed' | 'failed' | 'aborted' | undefined
     let finalError: string | undefined
     const failWallTimeLimit = async (): Promise<TurnExecutionStatus> => {
-      const message = `turn exceeded ${maxWallTimeMs}ms wall time`
+      const extensionLimited = Boolean(
+        owningThread?.extensionBudget && owningThread.extensionBudget.maxElapsedMs <= configuredWallTimeMs
+      )
+      const code = extensionLimited ? 'extension_budget_exhausted' : 'turn_wall_time_limit'
+      const message = extensionLimited
+        ? `Extension elapsed-time budget exhausted after ${maxWallTimeMs}ms.`
+        : `turn exceeded ${maxWallTimeMs}ms wall time`
       this.rememberTurnFailure(turnId, {
         error: message,
-        code: 'turn_wall_time_limit',
+        code,
         severity: 'warning'
       })
-      await this.recordTurnLimitExceeded(threadId, turnId, 'turn_wall_time_limit', message)
+      await this.recordTurnLimitExceeded(threadId, turnId, code, message)
       const settlement = await settle({
         status: 'failed',
         error: message,
-        code: 'turn_wall_time_limit',
+        code,
         severity: 'warning'
       })
       finalStatus = statusFromSettlement(settlement, 'failed')
@@ -644,16 +654,44 @@ export class AgentLoop {
     turnId: string,
     signal: AbortSignal
   ): Promise<TurnExecutionStatus> {
-    const limits = normalizeTurnLimits(this.opts.turnLimits)
+    const configuredLimits = normalizeTurnLimits(this.opts.turnLimits)
+    const thread = await this.opts.threadStore.get(threadId)
+    const limits = thread?.extensionBudget
+      ? {
+          ...configuredLimits,
+          maxSteps: Math.min(configuredLimits.maxSteps, thread.extensionBudget.maxModelRequests),
+          maxWallTimeMs: Math.min(configuredLimits.maxWallTimeMs, thread.extensionBudget.maxElapsedMs)
+        }
+      : configuredLimits
     const startedAt = this.opts.nowMs?.() ?? Date.now()
     for (let step = 0; ; step += 1) {
       if (signal.aborted) return 'aborted'
       if (step >= limits.maxSteps) {
-        await this.recordTurnLimitExceeded(threadId, turnId, 'turn_step_limit', `turn exceeded ${limits.maxSteps} model steps`)
+        const extensionLimited = Boolean(
+          thread?.extensionBudget && thread.extensionBudget.maxModelRequests <= configuredLimits.maxSteps
+        )
+        await this.recordTurnLimitExceeded(
+          threadId,
+          turnId,
+          extensionLimited ? 'extension_budget_exhausted' : 'turn_step_limit',
+          extensionLimited
+            ? `Extension model-request budget exhausted after ${limits.maxSteps} requests.`
+            : `turn exceeded ${limits.maxSteps} model steps`
+        )
         return 'failed'
       }
       if ((this.opts.nowMs?.() ?? Date.now()) - startedAt >= limits.maxWallTimeMs) {
-        await this.recordTurnLimitExceeded(threadId, turnId, 'turn_wall_time_limit', `turn exceeded ${limits.maxWallTimeMs}ms wall time`)
+        const extensionLimited = Boolean(
+          thread?.extensionBudget && thread.extensionBudget.maxElapsedMs <= configuredLimits.maxWallTimeMs
+        )
+        await this.recordTurnLimitExceeded(
+          threadId,
+          turnId,
+          extensionLimited ? 'extension_budget_exhausted' : 'turn_wall_time_limit',
+          extensionLimited
+            ? `Extension elapsed-time budget exhausted after ${limits.maxWallTimeMs}ms.`
+            : `turn exceeded ${limits.maxWallTimeMs}ms wall time`
+        )
         return 'failed'
       }
       await this.drainSteering(threadId, turnId, signal)
@@ -667,7 +705,7 @@ export class AgentLoop {
   private async recordTurnLimitExceeded(
     threadId: string,
     turnId: string,
-    code: 'turn_step_limit' | 'turn_wall_time_limit' | 'tool_call_limit_exceeded',
+    code: 'turn_step_limit' | 'turn_wall_time_limit' | 'tool_call_limit_exceeded' | 'extension_budget_exhausted',
     message: string
   ): Promise<void> {
     await this.opts.events.record({ kind: 'error', threadId, turnId, message, code, severity: 'warning' })
@@ -693,12 +731,37 @@ export class AgentLoop {
       ...(this.opts.artifactStore ? { artifactStore: this.opts.artifactStore } : {}),
       interactiveToolBridge: this.interactiveToolBridge
     })
-    return this.toolCallDispatcher.dispatch({
+    const thread = await this.opts.threadStore.get(input.threadId)
+    const turn = thread?.turns.find((candidate) => candidate.id === input.turnId)
+    const used = turn?.extensionToolInvocations ?? 0
+    const maximum = thread?.extensionBudget?.maxToolInvocations
+    if (maximum !== undefined && used + input.calls.length > maximum) {
+      const message = `Extension tool-invocation budget exhausted: ${used} used, ${input.calls.length} requested, ${maximum} allowed.`
+      await this.toolCallDispatcher.suppressAll(input, message)
+      await this.recordTurnLimitExceeded(
+        input.threadId,
+        input.turnId,
+        'extension_budget_exhausted',
+        message
+      )
+      return 'budget_exhausted'
+    }
+    let executed = 0
+    const outcome = await this.toolCallDispatcher.dispatch({
       dispatch: input,
       context,
       stormBreaker: this.toolStormBreakers.get(input.turnId),
-      onToolExecuted: (toolName) => this.goalTurns.noteToolExecuted(input.turnId, toolName)
+      onToolExecuted: (toolName) => {
+        executed += 1
+        this.goalTurns.noteToolExecuted(input.turnId, toolName)
+      }
     })
+    if (thread?.extensionBudget && executed > 0) {
+      await this.opts.turns.updateTurnMetadata(input.threadId, input.turnId, {
+        extensionToolInvocations: used + executed
+      })
+    }
+    return outcome
   }
 
   private async recordTokenEconomySavings(input: {

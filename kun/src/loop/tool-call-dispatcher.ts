@@ -25,6 +25,17 @@ export class ToolCallDispatcher {
     >
   ) {}
 
+  async suppressAll(dispatch: ToolDispatchInput, reason: string): Promise<void> {
+    for (const call of dispatch.calls) {
+      await this.toolExecution.persistSuppressed({
+        threadId: dispatch.threadId,
+        turnId: dispatch.turnId,
+        call,
+        reason
+      })
+    }
+  }
+
   async dispatch(input: ToolCallDispatcherInput): Promise<ToolDispatchOutcome> {
     const { dispatch } = input
     let index = 0

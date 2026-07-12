@@ -37,6 +37,9 @@ export function createToolExecutionContext(
     memoryPolicy: { enabled: deps.memoryEnabled },
     delegationPolicy: { enabled: false },
     ...(input.allowedToolNames ? { allowedToolNames: input.allowedToolNames } : {}),
+    ...(input.extensionToolCatalogEpoch
+      ? { extensionToolCatalogEpoch: input.extensionToolCatalogEpoch }
+      : {}),
     ...(deps.blockedProviderIds ? { blockedProviderIds: deps.blockedProviderIds } : {}),
     ...(deps.blockedToolNames ? { blockedToolNames: deps.blockedToolNames } : {}),
     ...(deps.blockedSkillIds ? { blockedSkillIds: deps.blockedSkillIds } : {}),

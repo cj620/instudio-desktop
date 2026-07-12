@@ -888,11 +888,21 @@ export function createMaintenanceActions(
       )
     }))
     try {
-      await p.submitApprovalDecision(
+      const outcome = await p.submitApprovalDecision(
         block.approvalId,
         decision === 'allow' ? 'allow' : 'deny',
-        false
+        true
       )
+      if (outcome === 'cancelled') {
+        set((s) => ({
+          blocks: s.blocks.map((b) =>
+            b.id === blockId && b.kind === 'approval'
+              ? { ...b, status: 'pending' as const, errorMessage: undefined }
+              : b
+          )
+        }))
+        return
+      }
       set((s) => ({
         blocks: s.blocks.map((b) =>
           b.id === blockId && b.kind === 'approval'

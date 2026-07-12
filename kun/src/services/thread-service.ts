@@ -19,6 +19,7 @@ import type {
   ThreadTodoStatus,
   ThreadSummary
 } from '../contracts/threads.js'
+import type { ExtensionThreadMetadata } from '../contracts/threads.js'
 import type { ApprovalPolicy, SandboxMode } from '../contracts/policy.js'
 import type { Turn } from '../contracts/turns.js'
 import type { TurnItem } from '../contracts/items.js'
@@ -146,6 +147,8 @@ export class ThreadService {
       relation?: ThreadRelation
       /** Parent thread this thread branches from (used by `side`/`fork` relations). */
       parentThreadId?: string
+      /** Broker-derived metadata. Never populated from the public thread request body. */
+      extensionMetadata?: ExtensionThreadMetadata
     } = {}
   ): Promise<ThreadRecord> {
     // Always advance the id generator so externally-supplied ids
@@ -159,6 +162,8 @@ export class ThreadService {
       workspace: request.workspace,
       model: request.model,
       ...(request.providerId?.trim() ? { providerId: request.providerId.trim() } : {}),
+      ...(request.accountId?.trim() ? { accountId: request.accountId.trim() } : {}),
+      ...(options.extensionMetadata ?? {}),
       ...(request.agentId?.trim() ? { agentId: request.agentId.trim() } : {}),
       ...(request.systemPrompt?.trim() ? { systemPrompt: request.systemPrompt.trim() } : {}),
       mode: request.mode,

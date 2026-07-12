@@ -3,6 +3,7 @@ import type { ApprovalRequest } from '../domain/approval.js'
 import type { TurnItem } from '../contracts/items.js'
 import type { ModelCapabilityMetadata } from '../contracts/capabilities.js'
 import type { ArtifactStore } from '../artifacts/artifact-store.js'
+import type { ExtensionToolCatalogEpoch } from '../contracts/threads.js'
 import type {
   UserInputRequest,
   UserInputResolution
@@ -19,6 +20,7 @@ export type ToolProviderKind =
   | 'image'
   | 'audio'
   | 'video'
+  | 'extension'
 
 export type ToolProviderPolicy = {
   id: string
@@ -99,6 +101,8 @@ export type ToolHostContext = {
   allowedProviderIds?: readonly string[]
   /** Optional tool-name allow-list. When set, other tools are not advertised or executed. */
   allowedToolNames?: readonly string[]
+  /** Immutable extension-tool catalog snapshot pinned to this thread boundary. */
+  extensionToolCatalogEpoch?: ExtensionToolCatalogEpoch
   /** Optional provider deny-list. Providers listed here are never advertised or executed (deny-list layered on inherit). */
   blockedProviderIds?: readonly string[]
   /** Optional tool-name deny-list. Tools listed here are never advertised or executed (deny-list layered on inherit). */

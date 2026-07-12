@@ -18,7 +18,8 @@ export async function startReview(
     response: StartReviewResponse,
     target: StartReviewRequest['target'],
     model?: string,
-    providerId?: string
+    providerId?: string,
+    accountId?: string
   ) => void
 ): Promise<JsonResponse | Response> {
   const body = await readJsonBody(request)
@@ -55,7 +56,13 @@ export async function startReview(
       ...started,
       reviewItemId
     }
-    onStarted?.(response, parsed.data.target, parsed.data.model, parsed.data.providerId)
+    onStarted?.(
+      response,
+      parsed.data.target,
+      parsed.data.model,
+      parsed.data.providerId,
+      parsed.data.accountId
+    )
     return jsonResponse(response, 202)
   } catch (error) {
     if (error instanceof TurnCapacityError) {

@@ -7,7 +7,7 @@ import {
   type ModelProviderModelProfileV1,
   type ModelProviderProfileV1
 } from '../../shared/app-settings'
-import { resolveCodexOAuthApiKey } from '../codex-auth'
+import { legacyProviderCredentialSourceId } from '../legacy-provider-settings-migration'
 
 const DEFAULT_KUN_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
   'deepseek-v4-pro': {
@@ -62,15 +62,18 @@ export function providersConfigForRuntime(
     const baseUrl = provider.baseUrl?.trim()
     const isAgentSdk = provider.kind === 'agent-sdk'
     if (!id || (!baseUrl && !isAgentSdk)) continue
-    const resolved = resolveCodexOAuthApiKey(provider.apiKey?.trim() ?? '')
     out[id] = {
-      apiKey: resolved.apiKey,
+      // Provider secrets live in the protected account store. The runtime
+      // resolves this opaque source binding after reading config.json.
+      apiKey: '',
+      credentialSourceId: legacyProviderCredentialSourceId(id),
       ...(baseUrl ? { baseUrl } : {}),
       ...(provider.kind ? { kind: provider.kind } : {}),
       ...(provider.endpointFormat ? { endpointFormat: provider.endpointFormat } : {}),
       retry: provider.retry,
       ...(proxyUrl ? { modelProxyUrl: proxyUrl } : {}),
-      ...(resolved.headers ? { headers: resolved.headers } : {})
+      // Credential-derived transport headers are reconstructed in Kun from
+      // the protected binding and are never persisted in config.json.
     }
   }
   return out
@@ -137,8 +140,10 @@ export function contextCompactionConfigForRuntime(
 
 export function rolesConfigForRuntime(runtime: Pick<
   KunRuntimeSettingsV1,
-  'smallModel' | 'smallModelProviderId' | 'titleModel' | 'titleProviderId' |
-  'summaryModel' | 'summaryProviderId' | 'codeReviewModel' | 'codeReviewProviderId' |
+  'smallModel' | 'smallModelProviderId' | 'smallModelAccountId' |
+  'titleModel' | 'titleProviderId' | 'titleAccountId' |
+  'summaryModel' | 'summaryProviderId' | 'summaryAccountId' |
+  'codeReviewModel' | 'codeReviewProviderId' | 'codeReviewAccountId' |
   'titleReasoningEffort' | 'summaryReasoningEffort' | 'codeReviewReasoningEffort'
 >): Record<string, string> {
   const out: Record<string, string> = {}
@@ -148,12 +153,16 @@ export function rolesConfigForRuntime(runtime: Pick<
   }
   put('smallModel', runtime.smallModel)
   put('smallModelProviderId', runtime.smallModelProviderId)
+  put('smallModelAccountId', runtime.smallModelAccountId)
   put('titleModel', runtime.titleModel)
   put('titleProviderId', runtime.titleProviderId)
+  put('titleAccountId', runtime.titleAccountId)
   put('summaryModel', runtime.summaryModel)
   put('summaryProviderId', runtime.summaryProviderId)
+  put('summaryAccountId', runtime.summaryAccountId)
   put('codeReviewModel', runtime.codeReviewModel)
   put('codeReviewProviderId', runtime.codeReviewProviderId)
+  put('codeReviewAccountId', runtime.codeReviewAccountId)
   put('titleReasoningEffort', runtime.titleReasoningEffort)
   put('summaryReasoningEffort', runtime.summaryReasoningEffort)
   put('codeReviewReasoningEffort', runtime.codeReviewReasoningEffort)

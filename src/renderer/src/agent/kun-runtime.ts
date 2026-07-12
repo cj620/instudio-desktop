@@ -18,7 +18,6 @@ import {
   KUN_RUNTIME_INFO_PATH,
   KUN_RUNTIME_TOOLS_PATH,
   KUN_SKILLS_PATH,
-  kunApprovalPath,
   kunThreadCompactPath,
   kunThreadEventsPath,
   kunThreadForkPath,
@@ -167,6 +166,7 @@ export class KunRuntimeProvider implements AgentProvider {
     mode?: KunThreadMode
     agentId?: string
     providerId?: string
+    accountId?: string
     model?: string
     systemPrompt?: string
   }): Promise<NormalizedThread> {
@@ -184,6 +184,7 @@ export class KunRuntimeProvider implements AgentProvider {
         approvalPolicy: runtime.approvalPolicy,
         sandboxMode: runtime.sandboxMode,
         ...(input.providerId?.trim() ? { providerId: input.providerId.trim() } : {}),
+        ...(input.accountId?.trim() ? { accountId: input.accountId.trim() } : {}),
         ...(input.agentId?.trim() ? { agentId: input.agentId.trim() } : {}),
         ...(input.systemPrompt?.trim() ? { systemPrompt: input.systemPrompt.trim() } : {})
       })
@@ -273,6 +274,7 @@ export class KunRuntimeProvider implements AgentProvider {
       mode?: KunThreadMode
       model?: string
       providerId?: string
+      accountId?: string
       reasoningEffort?: string
       displayText?: string
       guiPlan?: {
@@ -301,6 +303,7 @@ export class KunRuntimeProvider implements AgentProvider {
       prompt: text,
       model: options?.model,
       providerId: options?.providerId,
+      accountId: options?.accountId,
       approvalPolicy: runtime.approvalPolicy,
       sandboxMode: runtime.sandboxMode
     }
@@ -375,7 +378,7 @@ export class KunRuntimeProvider implements AgentProvider {
   async reviewThread(
     threadId: string,
     target: ReviewTarget,
-    options?: { model?: string; providerId?: string }
+    options?: { model?: string; providerId?: string; accountId?: string }
   ): Promise<{ turnId: string; threadId: string; userMessageItemId?: string; reviewItemId?: string }> {
     const body: Record<string, unknown> = { target }
     if (options?.model?.trim()) {
@@ -383,6 +386,9 @@ export class KunRuntimeProvider implements AgentProvider {
     }
     if (options?.providerId?.trim()) {
       body.providerId = options.providerId.trim()
+    }
+    if (options?.accountId?.trim()) {
+      body.accountId = options.accountId.trim()
     }
     const response = await rendererRuntimeClient.runtimeRequest(
       kunThreadReviewPath(threadId),
@@ -615,16 +621,22 @@ export class KunRuntimeProvider implements AgentProvider {
 
   async submitApprovalDecision(
     approvalId: string,
-    decision: 'allow' | 'deny'
-  ): Promise<void> {
-    const response = await rendererRuntimeClient.runtimeRequest(
-      kunApprovalPath(approvalId),
-      'POST',
-      JSON.stringify({ decision })
-    )
-    if (!response.ok) {
-      throw runtimeErrorToError(readRuntimeError(response.body, 'approval decision failed'))
+    decision: 'allow' | 'deny',
+    userInitiated = false
+  ): Promise<'submitted' | 'cancelled'> {
+    const protectedResult = await window.kunGui.resolveKunApproval({
+      approvalId,
+      decision,
+      source: userInitiated ? 'user' : 'policy'
+    })
+    if (!protectedResult.confirmed) return 'cancelled'
+    if (!protectedResult.response.ok) {
+      throw runtimeErrorToError(readRuntimeError(
+        protectedResult.response.body,
+        'approval decision failed'
+      ))
     }
+    return 'submitted'
   }
 
   async submitUserInputResponse(inputId: string, answers: UserInputAnswer[]): Promise<void> {

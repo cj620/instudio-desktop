@@ -481,7 +481,7 @@ export interface AgentProvider {
   }
   connect(): Promise<void>
   listThreads(options?: ThreadListOptions): Promise<NormalizedThread[]>
-  createThread(input: { workspace?: string; title?: string; titleAuto?: boolean; mode?: string; agentId?: string; providerId?: string; model?: string; systemPrompt?: string }): Promise<NormalizedThread>
+  createThread(input: { workspace?: string; title?: string; titleAuto?: boolean; mode?: string; agentId?: string; providerId?: string; accountId?: string; model?: string; systemPrompt?: string }): Promise<NormalizedThread>
   getThreadDetail(threadId: string): Promise<{
     blocks: ChatBlock[]
     latestSeq: number
@@ -503,6 +503,7 @@ export interface AgentProvider {
       mode?: string
       model?: string
       providerId?: string
+      accountId?: string
       reasoningEffort?: string
       displayText?: string
       guiPlan?: {
@@ -529,7 +530,7 @@ export interface AgentProvider {
   reviewThread?(
     threadId: string,
     target: ReviewTarget,
-    options?: { model?: string; providerId?: string }
+    options?: { model?: string; providerId?: string; accountId?: string }
   ): Promise<{ turnId: string; threadId: string; userMessageItemId?: string; reviewItemId?: string }>
   getRuntimeInfo?(): Promise<CoreRuntimeInfoJson>
   getToolDiagnostics?(): Promise<CoreRuntimeToolDiagnosticsJson>
@@ -612,12 +613,12 @@ export interface AgentProvider {
     sink: ThreadEventSink,
     signal: AbortSignal
   ): Promise<void>
-  /** Runtime HTTP: POST /v1/approvals/{id} */
+  /** Protected Main-owned approval decision; raw renderer HTTP is forbidden. */
   submitApprovalDecision?(
     approvalId: string,
     decision: 'allow' | 'deny',
-    remember?: boolean
-  ): Promise<void>
+    userInitiated?: boolean
+  ): Promise<'submitted' | 'cancelled' | void>
   /** Runtime HTTP compatibility path for request_user_input responses. */
   submitUserInputResponse?(requestId: string, answers: UserInputAnswer[]): Promise<void>
   cancelUserInput?(requestId: string): Promise<void>

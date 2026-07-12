@@ -25,7 +25,7 @@
   <a href="https://github.com/KunAgent/Kun/releases"><img src="https://img.shields.io/github/v/release/KunAgent/Kun?label=release" alt="GitHub release"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue" alt="License: PolyForm Noncommercial 1.0.0"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="Platform">
-  <img src="https://img.shields.io/badge/Electron-34-47848F?logo=electron&logoColor=white" alt="Electron 34">
+  <img src="https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white" alt="Electron 43">
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React 19">
 </p>
 
@@ -196,6 +196,7 @@ npm install --registry=https://registry.npmmirror.com
 
 | Doc | Contents |
 | --- | --- |
+| [docs/extensions/README.en.md](docs/extensions/README.en.md) | Kun Extension platform: workbench apps, Agent runs, tools, custom model providers, accounts, packaging, and compatibility |
 | [kun/README.md](kun/README.md) | Kun runtime, CLI, environment variables, HTTP API |
 | [docs/kun-architecture.en.md](docs/kun-architecture.en.md) | Runtime architecture and GUI integration |
 | [docs/kun-cache-optimization.en.md](docs/kun-cache-optimization.en.md) | Cache optimization and token economy |

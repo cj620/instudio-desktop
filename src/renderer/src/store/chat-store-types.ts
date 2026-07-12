@@ -30,6 +30,7 @@ export type QueuedUserMessage = {
   mode?: string
   model?: string
   providerId?: string
+  accountId?: string
   modelLabel?: string
   reasoningEffort?: string
   attachmentIds?: string[]
@@ -79,6 +80,7 @@ export type SendMessageOverrides = {
   queued?: QueuedUserMessage
   model?: string
   providerId?: string
+  accountId?: string
   modelLabel?: string
   reasoningEffort?: string
   displayText?: string

@@ -36,6 +36,20 @@ import {
   TimelineFilePreviewWorkspaceProvider,
   timelineFilePreviewWorkspaceRoot
 } from './timeline-file-preview-workspace'
+import {
+  RelativePathSchema,
+  ResultPreviewSourceSchema,
+  type JsonValue
+} from '@kun/extension-api'
+import type { RegisteredContribution } from '../../extensions/contribution-registry'
+import { boundedPlainText } from '../../extensions/safe-text'
+import {
+  DeclarativeActionBar,
+  canOpenHostContextMenuForTarget,
+  DeclarativeContextMenuOverlay,
+  DeclarativeResultPreviews,
+  type ExtensionResultPreviewSource
+} from '../../extensions/ControlledContributionSurfaces'
 
 export { summarizeToolBlock } from './message-timeline-process'
 
@@ -59,6 +73,12 @@ type Props = {
   onOpenPlan?: () => void
   compactCards?: boolean
   onOpenChildThread?: OpenChildThreadHandler
+  extensionMessageActions?: readonly RegisteredContribution<'actions.message'>[]
+  extensionContextMenus?: readonly RegisteredContribution<'contextMenus'>[]
+  extensionAttachmentContextMenus?: readonly RegisteredContribution<'contextMenus'>[]
+  extensionCommands?: readonly RegisteredContribution<'commands'>[]
+  extensionResultPreviews?: readonly RegisteredContribution<'message.resultPreviews'>[]
+  onExtensionCommand?: (commandId: string, context: JsonValue) => void | Promise<unknown>
 }
 
 type CompactionTimelineBlock = Extract<ChatBlock, { kind: 'compaction' }>
@@ -176,6 +196,55 @@ function processBlockHasError(block: ChatBlock): boolean {
   )
 }
 
+export function resultPreviewSourcesForTurn(turn: Turn): ExtensionResultPreviewSource[] {
+  const sources: ExtensionResultPreviewSource[] = []
+  const seen = new Set<string>()
+  for (const block of turn.blocks) {
+    if (block.kind !== 'tool' || block.status !== 'success' || !block.meta) continue
+    const generatedFiles = block.meta.generatedFiles
+    if (!Array.isArray(generatedFiles)) continue
+    generatedFiles.slice(0, 32).forEach((input, index) => {
+      if (!input || typeof input !== 'object' || Array.isArray(input)) return
+      const file = input as Record<string, unknown>
+      const mimeType = typeof file.mimeType === 'string'
+        ? file.mimeType.trim().toLowerCase().split(';', 1)[0].slice(0, 128)
+        : ''
+      if (!mimeType) return
+      const attachmentId = typeof file.id === 'string' && /^[A-Za-z0-9._:-]+$/.test(file.id)
+        ? file.id.slice(0, 256)
+        : undefined
+      const relativePathResult = RelativePathSchema.safeParse(file.relativePath)
+      const relativePath = relativePathResult.success ? relativePathResult.data : undefined
+      const boundedName = typeof file.name === 'string' ? boundedPlainText(file.name, 256).trim() : ''
+      const name = boundedName || undefined
+      const sourceId = `${block.id}:${attachmentId || relativePath || name || index}`
+        .replace(/[^A-Za-z0-9._:/+-]/g, '_')
+        .slice(0, 512)
+      if (seen.has(sourceId)) return
+      const source = ResultPreviewSourceSchema.safeParse({
+        sourceId,
+        mimeType,
+        ...(name ? { name } : {}),
+        ...(attachmentId ? { attachmentId } : {}),
+        ...(relativePath ? { relativePath } : {}),
+        ...(typeof file.byteSize === 'number' && Number.isFinite(file.byteSize)
+          ? { byteSize: Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.trunc(file.byteSize))) }
+          : {}),
+        ...(typeof file.width === 'number' && Number.isFinite(file.width)
+          ? { width: Math.min(1_000_000, Math.max(0, Math.trunc(file.width))) }
+          : {}),
+        ...(typeof file.height === 'number' && Number.isFinite(file.height)
+          ? { height: Math.min(1_000_000, Math.max(0, Math.trunc(file.height))) }
+          : {})
+      })
+      if (!source.success) return
+      seen.add(sourceId)
+      sources.push(source.data)
+    })
+  }
+  return sources
+}
+
 function compactionDividerLabel(
   block: CompactionTimelineBlock,
   t: (key: string, opts?: Record<string, unknown>) => string
@@ -223,7 +292,13 @@ export function MessageTimeline({
   onBuildPlan,
   onOpenPlan,
   compactCards = false,
-  onOpenChildThread
+  onOpenChildThread,
+  extensionMessageActions = [],
+  extensionContextMenus = [],
+  extensionAttachmentContextMenus = [],
+  extensionCommands = [],
+  extensionResultPreviews = [],
+  onExtensionCommand
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const {
@@ -254,6 +329,10 @@ export function MessageTimeline({
   const [jumpRailPreview, setJumpRailPreview] = useState<{
     title: string
     prompt: string
+  } | null>(null)
+  const [messageContextMenu, setMessageContextMenu] = useState<{
+    position: { x: number; y: number }
+    context: JsonValue
   } | null>(null)
 
   const turns = useMemo(() => groupTurns(blocks), [blocks])
@@ -516,6 +595,35 @@ export function MessageTimeline({
                 }
               }}
               className="scroll-mt-6"
+              data-extension-message-context
+              onContextMenu={(event) => {
+                const attachmentItem = event.target instanceof Element
+                  ? event.target.closest<HTMLElement>('[data-extension-attachment-item]')
+                  : null
+                const attachment = Boolean(attachmentItem) || (event.target instanceof Element &&
+                  event.target.closest('[data-extension-attachment-context]') !== null)
+                if (
+                  !onExtensionCommand ||
+                  (!attachment && !canOpenHostContextMenuForTarget(event.target))
+                ) return
+                const contributions = attachment
+                  ? extensionAttachmentContextMenus
+                  : extensionContextMenus
+                if (contributions.length === 0) return
+                event.preventDefault()
+                event.stopPropagation()
+                setMessageContextMenu({
+                  position: { x: event.clientX, y: event.clientY },
+                  context: {
+                    surface: attachment ? 'attachment' : 'message',
+                    threadId: activeThreadId,
+                    turnId: turn.user?.turnId ?? null,
+                    messageId: turn.user?.id ?? null,
+                    attachmentId: attachmentItem?.dataset.extensionAttachmentId || null,
+                    mimeType: attachmentItem?.dataset.extensionAttachmentMime || null
+                  }
+                })
+              }}
             >
               {showForkPoint ? <ThreadForkPoint parentTitle={forkedFromTitle} /> : null}
               <MemoMessageTurn
@@ -534,6 +642,30 @@ export function MessageTimeline({
                 viewportRef={containerRef}
                 compactCards={compactCards}
               />
+              {!turnIsProcessing && extensionMessageActions.length && onExtensionCommand ? (
+                <div className="mt-1 flex justify-end">
+                  <DeclarativeActionBar
+                    contributions={extensionMessageActions}
+                    context={{
+                      surface: 'message',
+                      threadId: activeThreadId,
+                      turnId: turn.user?.turnId ?? null,
+                      messageId: turn.user?.id ?? null
+                    }}
+                    onCommand={onExtensionCommand}
+                    compact
+                  />
+                </div>
+              ) : null}
+              {!turnIsProcessing && extensionResultPreviews.length ? (
+                <DeclarativeResultPreviews
+                  contributions={extensionResultPreviews}
+                  sources={resultPreviewSourcesForTurn(turn)}
+                  threadId={activeThreadId}
+                  turnId={turn.user?.turnId}
+                  workspaceRoot={workspaceRoot}
+                />
+              ) : null}
             </div>
           )
         })}
@@ -585,6 +717,21 @@ export function MessageTimeline({
         ) : null}
         <div ref={endRef} aria-hidden className="h-px w-full shrink-0" />
       </div>
+      {onExtensionCommand ? (
+        <DeclarativeContextMenuOverlay
+          contributions={messageContextMenu?.context &&
+            typeof messageContextMenu.context === 'object' &&
+            !Array.isArray(messageContextMenu.context) &&
+            messageContextMenu.context.surface === 'attachment'
+            ? extensionAttachmentContextMenus
+            : extensionContextMenus}
+          commands={extensionCommands}
+          context={messageContextMenu?.context ?? null}
+          position={messageContextMenu?.position ?? null}
+          onCommand={onExtensionCommand}
+          onClose={() => setMessageContextMenu(null)}
+        />
+      ) : null}
     </div>
     </InjectedMemoryLookupProvider>
     </TimelineFilePreviewWorkspaceProvider>

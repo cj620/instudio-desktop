@@ -5,6 +5,7 @@ import { ArrowDown, Check, ChevronDown, ChevronRight, Copy, Download, File, File
 import type { AttachmentReference, ChatBlock, GeneratedFileReference, RuntimeDisclosureMetadata, ToolBlock, UserFileReference, UserInputAnswer } from '../../agent/types'
 import { extractUnifiedDiffText } from '../../lib/diff-stats'
 import { useChatStore } from '../../store/chat-store'
+import { runTrustedUserActivation } from '../../extensions/protected-user-activation'
 import { getProvider } from '../../agent/registry'
 import { parseWritePromptForDisplay } from '../../write/quoted-selection'
 import { parseClawUserPromptForDisplay, type ClawUserPromptDisplay } from '@shared/app-settings'
@@ -838,10 +839,15 @@ function MediaPreviewTile({
     : saveState === 'saved'
       ? <Check className="h-3.5 w-3.5" strokeWidth={2} />
       : <Download className="h-3.5 w-3.5" strokeWidth={1.9} />
+  const extensionAttachmentContext = {
+    'data-extension-attachment-item': '',
+    'data-extension-attachment-id': media.id ?? '',
+    'data-extension-attachment-mime': media.mimeType ?? ''
+  }
 
   if (previewUrl && mediaIsImage(media)) {
     return (
-      <figure className={`${tileClass}${revealClass} relative`} title={title}>
+      <figure className={`${tileClass}${revealClass} relative`} title={title} {...extensionAttachmentContext}>
         <button
           type="button"
           onClick={() => setImagePreviewOpen(true)}
@@ -880,7 +886,7 @@ function MediaPreviewTile({
 
   if (previewUrl && mediaIsVideo(media)) {
     return (
-      <figure className={`${tileClass} relative`} title={title}>
+      <figure className={`${tileClass} relative`} title={title} {...extensionAttachmentContext}>
         <video src={previewUrl} className={mediaClass} controls preload="metadata" />
         <button
           type="button"
@@ -898,7 +904,7 @@ function MediaPreviewTile({
 
   const Icon = mediaIsVideo(media) ? Video : mediaIsImage(media) ? ImageIcon : File
   return (
-    <div className={`${tileClass} flex flex-col justify-between p-3`} title={title}>
+    <div className={`${tileClass} flex flex-col justify-between p-3`} title={title} {...extensionAttachmentContext}>
       <div className="flex min-w-0 items-start gap-2">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-ds-border-muted bg-ds-subtle text-ds-muted">
           <Icon className="h-4 w-4" strokeWidth={1.8} />
@@ -954,7 +960,7 @@ function MediaAttachmentGallery({
         : 'flex max-w-[80%] flex-wrap justify-end gap-2'
 
   return (
-    <div className={wrapperClass}>
+    <div className={wrapperClass} data-extension-attachment-context>
       {media.map((item) => {
         const key = mediaKey(item)
         return (
@@ -1672,7 +1678,10 @@ function MessageBubbleImpl({
               type="button"
               disabled={submitting}
               className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
-              onClick={() => void resolveApproval(block.id, 'allow')}
+              onClick={(event) => runTrustedUserActivation(
+                event,
+                () => void resolveApproval(block.id, 'allow')
+              )}
             >
               {t('approvalAllow')}
             </button>
@@ -1680,7 +1689,10 @@ function MessageBubbleImpl({
               type="button"
               disabled={submitting}
               className="rounded-lg border border-ds-border bg-ds-card px-3 py-1.5 text-[13px] font-medium text-ds-ink hover:bg-ds-hover disabled:cursor-wait disabled:opacity-60"
-              onClick={() => void resolveApproval(block.id, 'deny')}
+              onClick={(event) => runTrustedUserActivation(
+                event,
+                () => void resolveApproval(block.id, 'deny')
+              )}
             >
               {t('approvalDeny')}
             </button>

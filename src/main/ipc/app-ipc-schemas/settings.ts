@@ -366,12 +366,16 @@ const kunRuntimePatchSchema = z.object({
   // Title & Summary default to smallModel, then the main conversation model.
   smallModel: optionalModelIdSchema,
   smallModelProviderId: z.string().trim().max(64).optional(),
+  smallModelAccountId: z.string().trim().max(256).optional(),
   titleModel: optionalModelIdSchema,
   titleProviderId: z.string().trim().max(64).optional(),
+  titleAccountId: z.string().trim().max(256).optional(),
   summaryModel: optionalModelIdSchema,
   summaryProviderId: z.string().trim().max(64).optional(),
+  summaryAccountId: z.string().trim().max(256).optional(),
   codeReviewModel: optionalModelIdSchema,
   codeReviewProviderId: z.string().trim().max(64).optional(),
+  codeReviewAccountId: z.string().trim().max(256).optional(),
   // Per-role reasoning depth. Default 'off' is omitted by the normalizer.
   titleReasoningEffort: modelReasoningEffortSchema.optional(),
   summaryReasoningEffort: modelReasoningEffortSchema.optional(),

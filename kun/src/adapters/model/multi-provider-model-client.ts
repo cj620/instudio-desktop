@@ -32,6 +32,24 @@ export class MultiProviderModelClient implements ModelClient {
     this.model = input.default.model
   }
 
+  register(providerId: string, client: ModelClient): () => void {
+    const id = providerId.trim().toLowerCase()
+    if (!id) throw new Error('model provider id is required')
+    if (this.providers.has(id)) throw new Error(`model provider already registered: ${providerId}`)
+    this.providers.set(id, client)
+    return () => {
+      if (this.providers.get(id) === client) this.providers.delete(id)
+    }
+  }
+
+  unregister(providerId: string): boolean {
+    return this.providers.delete(providerId.trim().toLowerCase())
+  }
+
+  registeredProviderIds(): string[] {
+    return [...this.providers.keys()].sort()
+  }
+
   /**
    * Pick the client for this request's `providerId`. Omitted ids use the
    * default client; an explicit unknown id is an error so private request
@@ -39,7 +57,7 @@ export class MultiProviderModelClient implements ModelClient {
    */
   resolve(providerId?: string): ModelClient {
     const trimmed = providerId?.trim().toLowerCase()
-    if (!trimmed) return this.default_
+    if (!trimmed || trimmed === 'default') return this.default_
     const client = this.providers.get(trimmed)
     if (!client) throw new Error(`unknown model provider: ${providerId}`)
     return client

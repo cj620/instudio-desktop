@@ -67,6 +67,7 @@ describe('composeModelRequest', () => {
       turnId,
       model: 'test-model',
       providerId: 'provider_a',
+      accountId: 'account_a',
       reasoningEffort: 'high',
       immutablePrefix: prefix,
       threadSystemPrompt: '  persona rules  ',
@@ -92,6 +93,7 @@ describe('composeModelRequest', () => {
 
     expect(composed.request).toMatchObject({
       providerId: 'provider_a',
+      accountId: 'account_a',
       reasoningEffort: 'high',
       systemPrompt: 'runtime base\n\npersona rules',
       modeInstruction: 'plan mode',

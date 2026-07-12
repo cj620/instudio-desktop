@@ -51,6 +51,10 @@ function installDsGui(overrides: Partial<Window['kunGui']>): void {
     kunGui: {
       getSettings: vi.fn(async () => settings()),
       runtimeRequest: vi.fn(async () => ({ ok: true, status: 200, body: '{}' })),
+      resolveKunApproval: vi.fn(async () => ({
+        confirmed: true,
+        response: { ok: true, status: 200, body: '{}' }
+      })),
       startSse: vi.fn(async (_threadId: string, _sinceSeq: number, streamId?: string) => ({
         streamId: streamId ?? 'stream-1'
       })),
@@ -1107,6 +1111,10 @@ describe('KunRuntimeProvider', () => {
   it('auto-approves approval requests when policy is auto', async () => {
     let onData: ((payload: { streamId: string; events: unknown[] }) => void) | null = null
     const runtimeRequest = vi.fn(async () => ({ ok: true, status: 200, body: '{}' }))
+    const resolveKunApproval = vi.fn(async () => ({
+      confirmed: true as const,
+      response: { ok: true, status: 200, body: '{}' }
+    }))
     const ac = new AbortController()
     const sink: ThreadEventSink = {
       onSeq: vi.fn(),
@@ -1129,6 +1137,7 @@ describe('KunRuntimeProvider', () => {
     installDsGui({
       getSettings: vi.fn(async () => autoSettings),
       runtimeRequest,
+      resolveKunApproval,
       onSseEvent: vi.fn((handler) => {
         onData = handler
         return () => undefined
@@ -1148,17 +1157,21 @@ describe('KunRuntimeProvider', () => {
     })
     const provider = new KunRuntimeProvider()
     await provider.subscribeThreadEvents('thr_1', 0, sink, ac.signal)
-    expect(runtimeRequest).toHaveBeenCalledWith(
-      '/v1/approvals/appr_auto',
-      'POST',
-      JSON.stringify({ decision: 'allow' })
-    )
+    expect(resolveKunApproval).toHaveBeenCalledWith({
+      approvalId: 'appr_auto',
+      decision: 'allow',
+      source: 'policy'
+    })
     expect(sink.onApproval).not.toHaveBeenCalled()
   })
 
   it('uses the approval policy from runtime events before falling back to settings', async () => {
     let onData: ((payload: { streamId: string; events: unknown[] }) => void) | null = null
     const runtimeRequest = vi.fn(async () => ({ ok: true, status: 200, body: '{}' }))
+    const resolveKunApproval = vi.fn(async () => ({
+      confirmed: true as const,
+      response: { ok: true, status: 200, body: '{}' }
+    }))
     const getSettings = vi.fn(async (): Promise<AppSettingsV1> => ({
       ...settings(),
       agents: { kun: { ...defaultKunRuntimeSettings(), approvalPolicy: 'on-request' } }
@@ -1181,6 +1194,7 @@ describe('KunRuntimeProvider', () => {
     installDsGui({
       getSettings,
       runtimeRequest,
+      resolveKunApproval,
       onSseEvent: vi.fn((handler) => {
         onData = handler
         return () => undefined
@@ -1206,11 +1220,11 @@ describe('KunRuntimeProvider', () => {
     })
     const provider = new KunRuntimeProvider()
     await provider.subscribeThreadEvents('thr_1', 0, sink, ac.signal)
-    expect(runtimeRequest).toHaveBeenCalledWith(
-      '/v1/approvals/appr_event_auto',
-      'POST',
-      JSON.stringify({ decision: 'allow' })
-    )
+    expect(resolveKunApproval).toHaveBeenCalledWith({
+      approvalId: 'appr_event_auto',
+      decision: 'allow',
+      source: 'policy'
+    })
     expect(getSettings).not.toHaveBeenCalled()
     expect(sink.onApproval).not.toHaveBeenCalled()
   })
@@ -1219,6 +1233,10 @@ describe('KunRuntimeProvider', () => {
     for (const policy of ['suggest', 'untrusted'] as const) {
       let onData: ((payload: { streamId: string; events: unknown[] }) => void) | null = null
       const runtimeRequest = vi.fn(async () => ({ ok: true, status: 200, body: '{}' }))
+      const resolveKunApproval = vi.fn(async () => ({
+        confirmed: true as const,
+        response: { ok: true, status: 200, body: '{}' }
+      }))
       const ac = new AbortController()
       const sink: ThreadEventSink = {
         onSeq: vi.fn(),
@@ -1241,6 +1259,7 @@ describe('KunRuntimeProvider', () => {
       installDsGui({
         getSettings: vi.fn(async () => policySettings),
         runtimeRequest,
+        resolveKunApproval,
         onSseEvent: vi.fn((handler) => {
           onData = handler
           return () => undefined
@@ -1270,11 +1289,7 @@ describe('KunRuntimeProvider', () => {
         summary: `${policy} approval`,
         toolName: undefined
       })
-      expect(runtimeRequest).not.toHaveBeenCalledWith(
-        `/v1/approvals/appr_${policy}`,
-        'POST',
-        expect.any(String)
-      )
+      expect(resolveKunApproval).not.toHaveBeenCalled()
     }
   })
 })

@@ -4,6 +4,7 @@
   "back": "Back",
   "general": "General",
   "providers": "Providers",
+  "extensions": "Extensions",
   "agents": "AI assistant",
   "subagents": "Subagents",
   "subagentsSettingsIntro": "Manage runtime policy, models, reasoning effort, prompts, and capability access for delegatable subagents. These settings stay in sync with the workbench side panel.",

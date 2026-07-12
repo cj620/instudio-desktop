@@ -32,6 +32,7 @@ export type HistoryCompactionServiceDeps = {
   events: RuntimeEventRecorder
   ids: IdGenerator
   telemetry: Pick<LoopTelemetry, 'hydratePromptPressureIfCold' | 'consumePromptPressure'>
+  recordGoalUsage: (threadId: string, tokens: number) => Promise<void>
   /** Read live runtime config so hot-apply affects future compactions. */
   getContextCompaction?: () => ContextCompactionConfig | undefined
   /** Read live runtime hooks so hot-apply affects future compactions. */
@@ -51,10 +52,13 @@ export class HistoryCompactionService {
   async compactIfNeeded(input: {
     items: TurnItem[]
     model: string
+    providerId?: string
+    accountId?: string
     signal: AbortSignal
     threadId: string
     turnId: string
     toolSpecs?: readonly ModelToolSpec[]
+    reserveModelRequest?: () => Promise<{ allowed: boolean; reason?: string }>
   }): Promise<TurnItem[]> {
     await this.deps.telemetry.hydratePromptPressureIfCold(input.threadId, input.model)
     const pressure = this.deps.telemetry.consumePromptPressure(input.threadId, input.model)
@@ -132,42 +136,68 @@ export class HistoryCompactionService {
         // instead of issuing a duplicate summarizer request.
         const contextCompaction = this.deps.getContextCompaction?.()
         if (attempt === 1 && contextCompaction?.summaryMode === 'model') {
+          if (input.signal.aborted) {
+            return {
+              changed: false,
+              items: snapshot.items,
+              value: { history: currentItems, result: null }
+            }
+          }
           const compactionModel = resolveCompactionModel({
             contextCompaction,
-            fallbackModel: input.model
+            fallbackModel: input.model,
+            fallbackProviderId: input.providerId,
+            fallbackAccountId: input.accountId
           })
-          const modelSummary = await summarizeCompactionWithModel({
-            threadId: input.threadId,
-            turnId: input.turnId,
-            model: compactionModel.model,
-            ...(compactionModel.providerId ? { providerId: compactionModel.providerId } : {}),
-            modelClient: this.deps.model,
-            prefix: this.deps.prefix,
-            contextCompaction,
-            items: currentItems,
-            heuristicSummary: result.summaryItem.kind === 'compaction' ? result.summaryItem.summary : '',
-            signal: input.signal,
-            recordUsage: async (usageSnapshot) => {
-              const usage = this.deps.usage.record(input.threadId, usageSnapshot)
-              await this.deps.events.record({
-                kind: 'usage',
+          const recordFallback = async (message: string): Promise<void> => {
+            await this.deps.events.record({
+              kind: 'error',
+              threadId: input.threadId,
+              turnId: input.turnId,
+              message,
+              code: 'compaction_summary_fallback',
+              severity: 'warning'
+            })
+          }
+          let modelSummary: string | undefined
+          if (compactionModel.bindingError) {
+            await recordFallback(compactionModel.bindingError)
+          } else {
+            const reservation = await input.reserveModelRequest?.() ?? { allowed: true }
+            if (!reservation.allowed) {
+              await recordFallback(
+                reservation.reason
+                  ? `${reservation.reason} Model compaction summary was not sent; using heuristic summary.`
+                  : 'Model compaction summary skipped because its model-request budget is exhausted; using heuristic summary.'
+              )
+            } else {
+              modelSummary = await summarizeCompactionWithModel({
                 threadId: input.threadId,
                 turnId: input.turnId,
                 model: compactionModel.model,
-                usage
-              })
-            },
-            recordFallback: async (message) => {
-              await this.deps.events.record({
-                kind: 'error',
-                threadId: input.threadId,
-                turnId: input.turnId,
-                message,
-                code: 'compaction_summary_fallback',
-                severity: 'warning'
+                ...(compactionModel.providerId ? { providerId: compactionModel.providerId } : {}),
+                ...(compactionModel.accountId ? { accountId: compactionModel.accountId } : {}),
+                modelClient: this.deps.model,
+                prefix: this.deps.prefix,
+                contextCompaction,
+                items: currentItems,
+                heuristicSummary: result.summaryItem.kind === 'compaction' ? result.summaryItem.summary : '',
+                signal: input.signal,
+                recordUsage: async (usageSnapshot) => {
+                  const usage = this.deps.usage.record(input.threadId, usageSnapshot)
+                  await this.deps.recordGoalUsage(input.threadId, usageSnapshot.totalTokens)
+                  await this.deps.events.record({
+                    kind: 'usage',
+                    threadId: input.threadId,
+                    turnId: input.turnId,
+                    model: compactionModel.model,
+                    usage
+                  })
+                },
+                recordFallback
               })
             }
-          })
+          }
           if (input.signal.aborted) {
             return {
               changed: false,

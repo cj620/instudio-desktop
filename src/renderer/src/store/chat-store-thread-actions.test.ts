@@ -350,17 +350,33 @@ describe('chat-store-thread-actions queued messages', () => {
     state.busy = false
     state.composerModel = 'MiniMax-M3'
     state.composerProviderId = 'minimax-token-plan'
+    state.composerModelGroups = [{
+      providerId: 'minimax-token-plan',
+      label: 'Extension MiniMax',
+      modelIds: ['MiniMax-M3'],
+      accountId: 'account-extension-1',
+      extensionProvider: {
+        extensionId: 'acme.models',
+        extensionVersion: '1.0.0',
+        localProviderId: 'minimax'
+      }
+    }]
 
     await expect(actions.sendMessage('hello', 'agent')).resolves.toBe(true)
 
     expect(provider.createThread).toHaveBeenCalledWith(expect.objectContaining({
       model: 'MiniMax-M3',
-      providerId: 'minimax-token-plan'
+      providerId: 'minimax-token-plan',
+      accountId: 'account-extension-1'
     }))
     expect(provider.sendUserMessage).toHaveBeenCalledWith(
       'thr_new',
       'hello',
-      expect.objectContaining({ model: 'MiniMax-M3', providerId: 'minimax-token-plan' })
+      expect.objectContaining({
+        model: 'MiniMax-M3',
+        providerId: 'minimax-token-plan',
+        accountId: 'account-extension-1'
+      })
     )
   })
 })

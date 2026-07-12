@@ -32,6 +32,7 @@ import {
 } from '@shared/app-settings'
 import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import {
+  accountIdForComposerSelection,
   activeClawChannel,
   compactCodeWorkspaceRoots,
   forgetCodeWorkspaceRoot,
@@ -634,6 +635,11 @@ export function createThreadActions(
         overrideModel ?? (get().route === 'claw' && clawModel ? clawModel : get().composerModel.trim())
       const composerProviderId =
         overrides?.providerId?.trim() || fallbackComposerProviderIdForSend(get())
+      const composerAccountId = overrides?.accountId?.trim() || accountIdForComposerSelection(
+        get().composerModelGroups,
+        composerProviderId,
+        composerModel
+      )
       const userModelChip =
         overrides?.modelLabel ?? optimisticUserModelLabel(composerModel, threadSnap?.model)
       const displayText = overrides?.displayText?.trim()
@@ -655,6 +661,7 @@ export function createThreadActions(
             ...(mode ? { mode } : {}),
             ...(composerModel ? { model: composerModel } : {}),
             ...(composerProviderId ? { providerId: composerProviderId } : {}),
+            ...(composerAccountId ? { accountId: composerAccountId } : {}),
             ...(userModelChip ? { modelLabel: userModelChip } : {}),
             ...(reasoningEffort ? { reasoningEffort } : {}),
             ...(overrides?.guiPlan ? { guiPlan: overrides.guiPlan } : {}),
@@ -714,6 +721,10 @@ export function createThreadActions(
       queued?.model ?? overrideModel ?? (get().route === 'claw' && clawModel ? clawModel : get().composerModel.trim())
     const composerProviderId =
       queued?.providerId ?? overrides?.providerId?.trim() ?? fallbackComposerProviderIdForSend(get())
+    const composerAccountId =
+      queued?.accountId ??
+      overrides?.accountId?.trim() ??
+      accountIdForComposerSelection(get().composerModelGroups, composerProviderId, composerModel)
     const reasoningEffort = queued?.reasoningEffort ?? overrides?.reasoningEffort?.trim()
     const userModelChip =
       queued?.modelLabel ?? overrides?.modelLabel ?? optimisticUserModelLabel(composerModel, threadSnap?.model)
@@ -799,6 +810,7 @@ export function createThreadActions(
                 titleAuto: true,
                 ...(composerModel ? { model: composerModel } : {}),
                 ...(composerProviderId ? { providerId: composerProviderId } : {}),
+                ...(composerAccountId ? { accountId: composerAccountId } : {}),
                 mode: mode ?? 'agent'
               })
             : null
@@ -910,6 +922,7 @@ export function createThreadActions(
         mode,
         ...(composerModel ? { model: composerModel } : {}),
         ...(!channel && composerProviderId ? { providerId: composerProviderId } : {}),
+        ...(!channel && composerAccountId ? { accountId: composerAccountId } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(runtimeDisplayText ? { displayText: runtimeDisplayText } : {}),
         ...((queued?.guiPlan ?? overrides?.guiPlan) ? { guiPlan: queued?.guiPlan ?? overrides?.guiPlan } : {}),
@@ -1076,6 +1089,11 @@ export function createThreadActions(
     }
     const composerModel = get().composerModel.trim()
     const composerProviderId = get().composerProviderId.trim()
+    const composerAccountId = accountIdForComposerSelection(
+      get().composerModelGroups,
+      composerProviderId,
+      composerModel
+    )
     let activeThreadId = get().activeThreadId
     try {
       if (!activeThreadId) {
@@ -1100,6 +1118,7 @@ export function createThreadActions(
                 title: i18n.t('common:slashCommandReviewTitle'),
                 ...(composerModel ? { model: composerModel } : {}),
                 ...(composerProviderId ? { providerId: composerProviderId } : {}),
+                ...(composerAccountId ? { accountId: composerAccountId } : {}),
                 mode: 'agent'
               })
             : null
@@ -1137,7 +1156,8 @@ export function createThreadActions(
       })
       const { turnId, userMessageItemId } = await p.reviewThread(activeThreadId, target, {
         ...(composerModel ? { model: composerModel } : {}),
-        ...(composerProviderId ? { providerId: composerProviderId } : {})
+        ...(composerProviderId ? { providerId: composerProviderId } : {}),
+        ...(composerAccountId ? { accountId: composerAccountId } : {})
       })
       if (userMessageItemId && userModelChip) {
         rememberTurnModel(activeThreadId, userMessageItemId, userModelChip)

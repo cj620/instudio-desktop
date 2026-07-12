@@ -39,9 +39,11 @@ export class ThreadTitleService {
     const resolved = resolveRoleModel({
       roleModel: roles?.titleModel,
       roleProviderId: roles?.titleProviderId,
+      roleAccountId: roles?.titleAccountId,
       roles,
       mainModel: thread.model || this.deps.model.model,
-      mainProviderId: thread.providerId
+      mainProviderId: thread.providerId,
+      mainAccountId: thread.accountId
     })
     if (!resolved) return
 
@@ -51,6 +53,7 @@ export class ThreadTitleService {
       modelClient: this.deps.model,
       model: resolved.model,
       ...(resolved.providerId ? { providerId: resolved.providerId } : {}),
+      ...(resolved.accountId ? { accountId: resolved.accountId } : {}),
       userText,
       ...(assistantText ? { assistantText } : {}),
       ...(roles?.titleReasoningEffort

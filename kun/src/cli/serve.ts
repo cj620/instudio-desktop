@@ -93,6 +93,7 @@ export function parseServeOptions(
         : typeof raw.apiKey === 'string'
           ? raw.apiKey
           : env.DEEPSEEK_API_KEY ?? configServe.apiKey ?? DEFAULT_SERVE_OPTIONS.apiKey,
+    credentialSourceId: configServe.credentialSourceId,
     baseUrl:
       typeof raw['base-url'] === 'string'
         ? raw['base-url']
