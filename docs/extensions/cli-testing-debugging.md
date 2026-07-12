@@ -315,4 +315,6 @@ npm run smoke:packaged-extension-appimage
 
 只有对应操作系统 runner 上两层都通过，才能记录该平台 packaged Extension smoke 证据；Linux 还必须通过最终 AppImage 本体 smoke。静态脚本测试、Node runtime smoke 或 `linux-unpacked` desktop 不能替代最终 artifact 的 Chromium E2E。
 
+插件平台相关 PR 会在 `macos-latest`、`windows-latest` 和 `ubuntu-latest` 分别构建最终包并运行这些 smoke；它不发布 Release。全部 smoke 通过后，`npm run evidence:extension-native` 才会生成 `extension-native-evidence-darwin.json`、`extension-native-evidence-win32.json` 或 `extension-native-evidence-linux.json`。证据文件绑定完整 commit SHA、GitHub run/attempt、规范产物名、字节数和 SHA-256，并对缺失、多产物、错误架构、目录或 symlink fail closed。PR 的 macOS 包是用于原生行为验证的 ad-hoc 产物；Developer ID、notarization 和 stapled ticket 仍由受保护的稳定发布工作流验证。
+
 文档/示例 CI 还需校验 JSON snippets 可解析、TypeScript snippets 可编译、links/anchors、中英文件/heading 与代码块结构对齐、公开 SDK exports/`.d.ts` fingerprint 与 Changelog。`npm run check:extension-release-gate` 会把 acceptance fixture 复制到系统临时目录，在 Kun repo 外仅从新生成的 `.tgz` 安装 SDK、React bindings、test harness 和 CLI；lockfile 不得引用源码树或 workspace alias。它随后 typecheck 并真实执行 Agent command、tool、streaming Provider，以及 CLI validate → pack → install → list → doctor → uninstall。这个 clean-project gate 证明开发者 artifact 自洽，但不替代三平台 packaged Electron 的原生 smoke 证据。

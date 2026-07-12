@@ -29,6 +29,8 @@
 
 每个平台打包后必须依次运行两层基础 smoke：`npm run smoke:packaged-extensions -- --resources <app-resources>` 从真实 `app.asar.unpacked` 以 packaged Node runtime 完成 `.kunx` lifecycle、Kun Webview Session API、headless/Agent tool、custom Provider/account、doctor 和 uninstall；`npm run smoke:packaged-extension-desktop` 则以隔离 HOME/userData 正常启动 host-native Electron，经 CDP 点击 smoke contribution 并检查真实 Chromium Webview 安全边界。其 fixture 只显式允许动态 canary origin，并对隔离 guest 绕过资源协议的独立 CSP，使 Host request filter 成为被测控制。同步子进程、process-tree cleanup 和 release build job 都有硬超时；脚本验证 runtime/CDP 端口关闭，且不会对已退出 launcher 的旧 PID 发信号。Linux 无显示环境使用 `xvfb-run`，随后还要运行 `npm run smoke:packaged-extension-appimage`：它在原生 x64 runner 以 `APPIMAGE_EXTRACT_AND_RUN=1` 直接启动唯一的最终 AppImage，且不注入外部 `app.asar`。前一层使用 `ELECTRON_RUN_AS_NODE`，不能证明桌面 Chromium；后一层也不替代 headless/runtime flow；`linux-unpacked` 通过也不能替代最终 AppImage。工作流配置和门禁通过都不是 Windows/Linux 原生执行证据；这些层也不能模拟另一个操作系统的安装器、可访问性或系统 Credential Store，因此 artifact 安装与原生平台证据必须由对应 macOS、Windows、Linux CI/实机取得。
 
+PR 检查必须在三种原生 runner 上完成上述 smoke，且只验证、上传临时 artifact，不创建 Release。最后一个 smoke 成功后才可运行 `npm run evidence:extension-native`；生成的三平台 JSON 证据必须绑定完整 commit、GitHub run/attempt、规范 artifact、bytes 和 SHA-256，并随 artifact 上传。证据生成对缺失、多余、错误架构、目录和 symlink fail closed。macOS PR 使用不含发布秘密的 ad-hoc 签名；正式发布记录仍必须来自 Developer ID 签名、公证和 stapled ticket 均通过的受保护工作流。
+
 #### 发布证据记录
 
 | 证据 | 状态（Pass/Blocked/N/A） | Commit、CI run、artifact 或报告链接 | Reviewer/日期 |

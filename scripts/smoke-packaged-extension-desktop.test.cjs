@@ -626,6 +626,7 @@ test('every automated and local release path gates uploads behind packaged Exten
   const pr = parseYaml(readFileSync(join(root, '.github', 'workflows', 'pr-checks.yml'), 'utf8'))
   const desktopCommand = 'npm run smoke:packaged-extension-desktop'
   const appImageDesktopCommand = 'npm run smoke:packaged-extension-appimage'
+  const nativeEvidenceCommand = 'npm run evidence:extension-native'
 
   assertPublishDependencies(release, 'stable release')
   assertPublishDependencies(daily, 'daily prerelease')
@@ -633,54 +634,82 @@ test('every automated and local release path gates uploads behind packaged Exten
   assertOrderedCommands(release.jobs['build-macos'], [
     'npm run smoke:packaged-extensions -- --resources dist/mac/Kun.app/Contents/Resources',
     'npm run smoke:packaged-extensions -- --resources dist/mac-arm64/Kun.app/Contents/Resources',
-    desktopCommand
+    desktopCommand,
+    nativeEvidenceCommand
   ])
-  assertStepAfter(release.jobs['build-macos'], 'Upload macOS artifacts', desktopCommand)
+  assertStepAfter(release.jobs['build-macos'], 'Upload macOS artifacts', nativeEvidenceCommand)
   assertOrderedCommands(release.jobs['build-windows'], [
     'npm run smoke:packaged-extensions -- --resources dist/win-unpacked/resources',
-    desktopCommand
+    desktopCommand,
+    nativeEvidenceCommand
   ])
-  assertStepAfter(release.jobs['build-windows'], 'Upload Windows artifacts', desktopCommand)
+  assertStepAfter(release.jobs['build-windows'], 'Upload Windows artifacts', nativeEvidenceCommand)
   assertOrderedCommands(release.jobs['build-linux'], [
     'npm run smoke:packaged-extensions -- --resources dist/linux-unpacked/resources',
     desktopCommand,
-    appImageDesktopCommand
+    appImageDesktopCommand,
+    nativeEvidenceCommand
   ])
-  assertStepAfter(release.jobs['build-linux'], 'Upload Linux artifacts', appImageDesktopCommand)
+  assertStepAfter(release.jobs['build-linux'], 'Upload Linux artifacts', nativeEvidenceCommand)
   assertOrderedCommands(pr.jobs.package, [
     'npm run smoke:packaged-extensions -- --resources dist/linux-unpacked/resources',
     desktopCommand,
-    appImageDesktopCommand
+    appImageDesktopCommand,
+    nativeEvidenceCommand
   ])
-  assertStepAfter(pr.jobs.package, 'Upload Linux package', appImageDesktopCommand)
+  assertStepAfter(pr.jobs.package, 'Upload Linux package', nativeEvidenceCommand)
+  assertOrderedCommands(pr.jobs['package-macos'], [
+    'npm run dist:mac',
+    'npm run smoke:packaged-extensions -- --resources dist/mac/Kun.app/Contents/Resources',
+    'npm run smoke:packaged-extensions -- --resources dist/mac-arm64/Kun.app/Contents/Resources',
+    desktopCommand,
+    nativeEvidenceCommand
+  ])
+  assertStepAfter(pr.jobs['package-macos'], 'Upload ad-hoc macOS PR packages', nativeEvidenceCommand)
+  assertOrderedCommands(pr.jobs['package-windows'], [
+    'npm run dist:win',
+    'npm run smoke:packaged-extensions -- --resources dist/win-unpacked/resources',
+    desktopCommand,
+    nativeEvidenceCommand
+  ])
+  assertStepAfter(pr.jobs['package-windows'], 'Upload Windows PR package', nativeEvidenceCommand)
   assertOrderedCommands(daily.jobs['build-macos'], [
     'npm run check:extension-release-gate',
     'npm run dist:mac',
     'npm run smoke:packaged-extensions -- --resources dist/mac/Kun.app/Contents/Resources',
     'npm run smoke:packaged-extensions -- --resources dist/mac-arm64/Kun.app/Contents/Resources',
-    desktopCommand
+    desktopCommand,
+    nativeEvidenceCommand
   ])
-  assertStepAfter(daily.jobs['build-macos'], 'Upload macOS artifacts', desktopCommand)
+  assertStepAfter(daily.jobs['build-macos'], 'Upload macOS artifacts', nativeEvidenceCommand)
   assertOrderedCommands(daily.jobs['build-windows'], [
     'npm run check:extension-release-gate',
     'npm run dist:win',
     'npm run smoke:packaged-extensions -- --resources dist/win-unpacked/resources',
-    desktopCommand
+    desktopCommand,
+    nativeEvidenceCommand
   ])
-  assertStepAfter(daily.jobs['build-windows'], 'Upload Windows artifacts', desktopCommand)
+  assertStepAfter(daily.jobs['build-windows'], 'Upload Windows artifacts', nativeEvidenceCommand)
   assertOrderedCommands(daily.jobs['build-linux'], [
     'npm run check:extension-release-gate',
     'npm run dist:linux',
     'npm run smoke:packaged-extensions -- --resources dist/linux-unpacked/resources',
     desktopCommand,
-    appImageDesktopCommand
+    appImageDesktopCommand,
+    nativeEvidenceCommand
   ])
-  assertStepAfter(daily.jobs['build-linux'], 'Upload Linux artifacts', appImageDesktopCommand)
+  assertStepAfter(daily.jobs['build-linux'], 'Upload Linux artifacts', nativeEvidenceCommand)
   for (const jobId of ['build-macos', 'build-windows', 'build-linux']) {
     assert.equal(release.jobs[jobId]['timeout-minutes'], 90, `${jobId} must have a bounded timeout`)
     assert.equal(daily.jobs[jobId]['timeout-minutes'], 90, `daily ${jobId} must have a bounded timeout`)
   }
   assert.equal(pr.jobs.package['timeout-minutes'], 60, 'PR Linux package job must have a bounded timeout')
+  assert.equal(pr.jobs['package-macos']['timeout-minutes'], 90, 'PR macOS package job must have a bounded timeout')
+  assert.equal(pr.jobs['package-windows']['timeout-minutes'], 90, 'PR Windows package job must have a bounded timeout')
+  for (const jobId of ['package', 'package-macos', 'package-windows']) {
+    const needs = Array.isArray(pr.jobs[jobId].needs) ? pr.jobs[jobId].needs : [pr.jobs[jobId].needs]
+    assert.ok(needs.includes('test'), `${jobId} must depend on the test gate`)
+  }
   for (const [label, job] of [
     ['release Linux', release.jobs['build-linux']],
     ['daily Linux', daily.jobs['build-linux']],
@@ -694,6 +723,34 @@ test('every automated and local release path gates uploads behind packaged Exten
       step?.['continue-on-error'] === undefined || step['continue-on-error'] === false,
       `${label} AppImage smoke must fail closed`
     )
+  }
+  for (const [label, job, evidenceFile] of [
+    ['release macOS', release.jobs['build-macos'], 'extension-native-evidence-darwin.json'],
+    ['release Windows', release.jobs['build-windows'], 'extension-native-evidence-win32.json'],
+    ['release Linux', release.jobs['build-linux'], 'extension-native-evidence-linux.json'],
+    ['daily macOS', daily.jobs['build-macos'], 'extension-native-evidence-darwin.json'],
+    ['daily Windows', daily.jobs['build-windows'], 'extension-native-evidence-win32.json'],
+    ['daily Linux', daily.jobs['build-linux'], 'extension-native-evidence-linux.json'],
+    ['PR macOS', pr.jobs['package-macos'], 'extension-native-evidence-darwin.json'],
+    ['PR Windows', pr.jobs['package-windows'], 'extension-native-evidence-win32.json'],
+    ['PR Linux', pr.jobs.package, 'extension-native-evidence-linux.json']
+  ]) {
+    const evidenceStep = job.steps.find((candidate) => candidate.run === nativeEvidenceCommand)
+    assert.ok(evidenceStep, `${label} must record native artifact evidence`)
+    assert.equal(evidenceStep.if, undefined, `${label} native evidence must not be conditional`)
+    assert.ok(
+      evidenceStep['continue-on-error'] === undefined || evidenceStep['continue-on-error'] === false,
+      `${label} native evidence must fail closed`
+    )
+    const upload = job.steps.find((candidate) => String(candidate.name).startsWith('Upload '))
+    assert.match(String(upload?.with?.path ?? ''), new RegExp(evidenceFile.replace('.', '\\.')))
+  }
+
+  const prFailureNeeds = Array.isArray(pr.jobs['request-changes-on-failure'].needs)
+    ? pr.jobs['request-changes-on-failure'].needs
+    : [pr.jobs['request-changes-on-failure'].needs]
+  for (const jobId of ['test', 'package', 'package-macos', 'package-windows']) {
+    assert.ok(prFailureNeeds.includes(jobId), `PR failure review must depend on ${jobId}`)
   }
 
   const releaseLinuxDependencies =

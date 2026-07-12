@@ -1056,6 +1056,8 @@ const checklistPairs = [
       'packaged Node runtime',
       'Chromium desktop',
       '最终 AppImage',
+      'evidence:extension-native',
+      'SHA-256',
       '发布证据记录'
     ]
   ],
@@ -1069,6 +1071,8 @@ const checklistPairs = [
       'packaged Node runtime',
       'Chromium desktop',
       'final AppImage',
+      'evidence:extension-native',
+      'SHA-256',
       'Release evidence record'
     ]
   ]
