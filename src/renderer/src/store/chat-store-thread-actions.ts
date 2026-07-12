@@ -683,6 +683,10 @@ export function createThreadActions(
       )
       if (!writeThreadId) return false
       if (writeContext?.threadId && writeThreadId !== writeContext.threadId) return false
+      // ensureWriteThreadForWorkspace may await selectThread. If the user
+      // selects another conversation before it resolves, never fall through to
+      // the provider with that newer activeThreadId.
+      if (get().activeThreadId !== writeThreadId) return false
       if (writeContext && !writeContext.threadId) {
         writeContext = { ...writeContext, threadId: writeThreadId }
       }

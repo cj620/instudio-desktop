@@ -228,6 +228,43 @@ describe('chat-store-thread-actions queued messages', () => {
     )
   })
 
+  it('fails closed when another thread becomes active while the Write ensure resolves', async () => {
+    const provider = { sendUserMessage: vi.fn() }
+    registryMock.getProvider.mockReturnValue(provider)
+    vi.stubGlobal('window', { kunGui: {} })
+    useWriteWorkspaceStore.setState({
+      workspaceRoot: '/workspace/deepseek-gui',
+      activeFilePath: '/workspace/deepseek-gui/draft.md',
+      activeFileKind: 'text',
+      documentEpoch: 4,
+      contentRevision: 2,
+      fileContent: 'saved draft',
+      persistedContent: 'saved draft',
+      saveStatus: 'saved'
+    })
+    const { actions, state } = buildHarness()
+    state.route = 'write'
+    state.busy = false
+    const ensureWriteThreadForWorkspace = vi.fn(async () => {
+      state.activeThreadId = 'thr_selected_elsewhere'
+      return 'thr_existing'
+    })
+    state.ensureWriteThreadForWorkspace = ensureWriteThreadForWorkspace as ChatState['ensureWriteThreadForWorkspace']
+
+    await expect(actions.sendMessage('revise this', 'agent', {
+      writeContext: {
+        workspaceRoot: '/workspace/deepseek-gui',
+        activeFilePath: '/workspace/deepseek-gui/draft.md',
+        documentEpoch: 4,
+        contentRevision: 2
+      }
+    })).resolves.toBe(false)
+
+    expect(ensureWriteThreadForWorkspace).toHaveBeenCalledTimes(1)
+    expect(provider.sendUserMessage).not.toHaveBeenCalled()
+    expect(state.blocks).toEqual([])
+  })
+
   it.each([
     ['route', { route: 'chat' as const }],
     ['file', { activeFilePath: '/workspace/deepseek-gui/other.md' }],
