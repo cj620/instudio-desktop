@@ -125,6 +125,7 @@
 }
 
 .write-pdf-canvas,
+.write-pdf-text-layer-host,
 .write-pdf-text-layer,
 .write-pdf-overlay-layer {
   position: absolute;
@@ -184,6 +185,10 @@
   cursor: default;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.write-pdf-text-layer.selecting .endOfContent {
+  top: 0;
 }
 
 .write-pdf-overlay-layer {

@@ -3,7 +3,6 @@ import { ChevronLeft, ChevronRight, Loader2, Minus, Plus, Search } from 'lucide-
 import { useTranslation } from 'react-i18next'
 import {
   GlobalWorkerOptions,
-  TextLayer,
   getDocument,
   type PDFDocumentProxy,
   type PDFPageProxy,
@@ -16,7 +15,10 @@ import type {
   WriteSelectionPageRect
 } from './WriteMarkdownEditor'
 import { viewportRectToPageLocalRect } from './write-pdf-selection-geometry'
-import { applyPdfTextLayerScale } from './write-pdf-text-layer'
+import {
+  applyPdfTextLayerScale,
+  startPdfTextLayerRenderWithoutUiZoom
+} from './write-pdf-text-layer'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -130,7 +132,11 @@ function collectRangeTextRects(range: Range): DOMRect[] {
   while (node && rects.length < MAX_SELECTION_FRAGMENT_RECTS) {
     if (range.comparePoint(node, 0) > 0) break
     const text = node as Text
-    if (text.data.trim() && range.intersectsNode(text)) {
+    if (
+      text.data.trim() &&
+      text.parentElement?.closest('.write-pdf-text-layer') &&
+      range.intersectsNode(text)
+    ) {
       probe.selectNodeContents(text)
       if (text === range.startContainer) probe.setStart(text, range.startOffset)
       if (text === range.endContainer) probe.setEnd(text, range.endOffset)
@@ -311,17 +317,18 @@ function WritePdfPage({
   onPageText: (page: PageText) => void
 }): ReactElement {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const textLayerRef = useRef<HTMLDivElement | null>(null)
+  const textLayerHostRef = useRef<HTMLDivElement | null>(null)
   const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(null)
 
   useEffect(() => {
     let cancelled = false
     let renderTask: { cancel: () => void; promise: Promise<unknown> } | null = null
+    let textLayerBuilder: { cancel: () => void } | null = null
 
     const renderPage = async (): Promise<void> => {
       const canvas = canvasRef.current
-      const textLayer = textLayerRef.current
-      if (!canvas || !textLayer) return
+      const textLayerHost = textLayerHostRef.current
+      if (!canvas || !textLayerHost) return
       const page: PDFPageProxy = await document.getPage(pageNumber)
       if (cancelled) return
       const viewport = page.getViewport({ scale })
@@ -340,15 +347,26 @@ function WritePdfPage({
       await task.promise
       if (cancelled) return
 
-      textLayer.replaceChildren()
-      applyPdfTextLayerScale(textLayer.style, viewport)
+      textLayerHost.replaceChildren()
       const textContent = await page.getTextContent()
-      const textLayerRenderer = new TextLayer({
-        textContentSource: textContent,
-        container: textLayer,
-        viewport
+      if (cancelled) return
+      // pdf_viewer.mjs reads the namespace that build/pdf.mjs installs on
+      // globalThis, so load the builder only after the core module is active.
+      const { TextLayerBuilder } = await import('pdfjs-dist/web/pdf_viewer.mjs')
+      if (cancelled) return
+      const builder = new TextLayerBuilder({
+        pdfPage: page,
+        onAppend: (div) => {
+          if (!cancelled) textLayerHost.replaceChildren(div)
+        }
       })
-      await textLayerRenderer.render()
+      textLayerBuilder = builder
+      builder.div.classList.add('write-pdf-text-layer')
+      applyPdfTextLayerScale(builder.div.style, viewport)
+      const textLayerRender = startPdfTextLayerRenderWithoutUiZoom(
+        () => builder.render({ viewport })
+      )
+      await textLayerRender
       if (!cancelled) {
         const text = textContent.items
           .map((item: TextContentItem) => (typeof item.str === 'string' ? item.str : ''))
@@ -364,6 +382,7 @@ function WritePdfPage({
     return () => {
       cancelled = true
       renderTask?.cancel()
+      textLayerBuilder?.cancel()
     }
   }, [document, onPageText, pageNumber, scale])
 
@@ -379,7 +398,7 @@ function WritePdfPage({
       }}
     >
       <canvas ref={canvasRef} className="write-pdf-canvas" />
-      <div ref={textLayerRef} className="write-pdf-text-layer textLayer" />
+      <div ref={textLayerHostRef} className="write-pdf-text-layer-host" />
       <div className="write-pdf-overlay-layer" aria-hidden="true">
         {selectionRects.map((rect, index) => (
           <span
@@ -759,7 +778,7 @@ export function WritePdfViewer({
                   selectionRects={committedRectsByPage.get(pageNumber) ?? []}
                   onPageText={updatePageText}
                 />
-                <div className="mt-1 text-center text-[11px] text-ds-faint">
+                <div className="mt-1 select-none text-center text-[11px] text-ds-faint">
                   {t('writePdfPageLabel', { page: pageNumber })}
                 </div>
               </div>

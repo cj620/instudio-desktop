@@ -76,3 +76,17 @@ declare module 'pdfjs-dist/legacy/build/pdf.mjs' {
   }
   export function getDocument(options: unknown): PDFDocumentLoadingTask
 }
+
+declare module 'pdfjs-dist/web/pdf_viewer.mjs' {
+  import type { PDFPageProxy, PageViewport } from 'pdfjs-dist/build/pdf.mjs'
+
+  export class TextLayerBuilder {
+    div: HTMLDivElement
+    constructor(options: {
+      pdfPage: PDFPageProxy
+      onAppend?: (div: HTMLDivElement) => void
+    })
+    render(options: { viewport: PageViewport; textContentParams?: unknown }): Promise<void>
+    cancel(): void
+  }
+}
