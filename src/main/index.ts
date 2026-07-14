@@ -1615,39 +1615,24 @@ app.whenReady().then(async () => {
   })
   traceStartup('install webview guards:done')
   const extensionConsentTokens = new ExtensionConsentTokenService()
+  protectedCredentialSurface = new ProtectedCredentialSurfaceController(
+    resolveNamedPreloadPath(__dirname, 'extension-protected-surface')
+  )
+  protectedCredentialSurface.register()
   const protectedExtensionActions = new ProtectedExtensionActionService(
     extensionConsentTokens,
     async (binding, copy) => {
       const settings = await store.load()
       const prompt = localizeProtectedExtensionPrompt(binding, copy, settings.locale)
-      const detail = [
-        `${prompt.extensionLabel}: ${binding.extensionId} ${binding.extensionVersion}`,
-        `${prompt.operationLabel}: ${binding.operationKind}`,
-        binding.workspaceRoot ? `${prompt.workspaceLabel}: ${binding.workspaceRoot}` : undefined,
-        prompt.detail
-      ].filter((value): value is string => Boolean(value)).join('\n\n')
       const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined
-      const dialogOptions = {
-        type: 'warning' as const,
-        title: prompt.title,
-        message: prompt.message,
-        detail,
-        buttons: [prompt.approveLabel, prompt.cancelLabel],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
-        normalizeAccessKeys: true
-      }
-      const result = parent
-        ? await dialog.showMessageBox(parent, dialogOptions)
-        : await dialog.showMessageBox(dialogOptions)
-      return result.response === 0
+      return protectedCredentialSurface!.promptConsent(parent ?? null, {
+        ...prompt,
+        extensionValue: `${binding.extensionId} ${binding.extensionVersion}`,
+        operationValue: binding.operationKind,
+        ...(binding.workspaceRoot ? { workspaceValue: binding.workspaceRoot } : {})
+      })
     }
   )
-  protectedCredentialSurface = new ProtectedCredentialSurfaceController(
-    resolveNamedPreloadPath(__dirname, 'extension-protected-surface')
-  )
-  protectedCredentialSurface.register()
   const extensionContentScripts = new ExtensionContentScriptController(extensionDescriptors, {
     onDiagnostic: (diagnostic) => {
       logWarn('extension-content-script', diagnostic.message, {

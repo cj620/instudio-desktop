@@ -16,6 +16,12 @@ export type ProtectedExtensionPromptPresentation = ProtectedExtensionPromptCopy 
   workspaceLabel: string
 }
 
+export type ProtectedExtensionConsentDocument = ProtectedExtensionPromptPresentation & {
+  extensionValue: string
+  operationValue: string
+  workspaceValue?: string
+}
+
 /**
  * Localizes Main-owned consent chrome and the known host-authored operations.
  * Unknown/custom consent copy is kept verbatim so localization never changes
@@ -27,9 +33,10 @@ export function localizeProtectedExtensionPrompt(
   locale: ProtectedExtensionPromptLocale
 ): ProtectedExtensionPromptPresentation {
   if (locale !== 'zh') {
+    const permissionChange = binding.operationKind === 'extension.permissions' && copy.title === 'Change extension permissions'
     return {
       ...copy,
-      approveLabel: 'Continue',
+      approveLabel: permissionChange ? 'Apply changes' : 'Continue',
       cancelLabel: 'Cancel',
       extensionLabel: 'Extension',
       operationLabel: 'Operation',
@@ -37,14 +44,43 @@ export function localizeProtectedExtensionPrompt(
     }
   }
 
+  const localized = localizeKnownChineseCopy(binding, copy)
+  const permissionChange = binding.operationKind === 'extension.permissions' && copy.title === 'Change extension permissions'
   return {
-    ...localizeKnownChineseCopy(binding, copy),
-    approveLabel: '继续',
+    ...localized,
+    approveLabel: permissionChange ? '同意更改' : '继续',
     cancelLabel: '取消',
     extensionLabel: '扩展',
     operationLabel: '操作',
     workspaceLabel: '工作区'
   }
+}
+
+/**
+ * Main-owned consent document. The middle review region is the only scrolling
+ * area, so long permission/risk lists cannot push the decision controls below
+ * the visible display. All values are escaped and the data URL forbids script.
+ */
+export function buildProtectedExtensionConsentDataUrl(
+  prompt: ProtectedExtensionConsentDocument
+): string {
+  const title = escapeHtml(prompt.title)
+  const message = escapeHtml(prompt.message)
+  const approveLabel = escapeHtml(prompt.approveLabel)
+  const cancelLabel = escapeHtml(prompt.cancelLabel)
+  const meta = [
+    [prompt.extensionLabel, prompt.extensionValue],
+    [prompt.operationLabel, prompt.operationValue],
+    ...(prompt.workspaceValue ? [[prompt.workspaceLabel, prompt.workspaceValue]] : [])
+  ].map(([label, value]) => `<div class="meta-row"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')
+  const detail = prompt.detail
+    ? `<section class="review" aria-label="${title}"><div class="review-text">${escapeHtml(prompt.detail)}</div></section>`
+    : ''
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; base-uri 'none'"><meta name="color-scheme" content="light dark"><title>${title}</title><style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:light dark;background:Canvas;color:CanvasText}*{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden}body{display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:Canvas;color:CanvasText}.header{display:grid;grid-template-columns:44px minmax(0,1fr);gap:15px;padding:22px 26px 18px;border-bottom:1px solid color-mix(in srgb,CanvasText 12%,transparent);background:color-mix(in srgb,Canvas 96%,#f59e0b 4%)}.warning{display:flex;width:44px;height:44px;align-items:center;justify-content:center;border-radius:13px;background:#fff4d6;color:#9a5b00;font-size:25px;font-weight:800;border:1px solid #f4cc6a}.header h1{margin:1px 0 6px;font-size:19px;line-height:1.25}.header p{margin:0;color:color-mix(in srgb,CanvasText 68%,transparent);font-size:14px;line-height:1.5}.scroll-region{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:20px 26px 24px}.meta{display:grid;gap:8px;margin:0 0 18px;padding:14px 16px;border:1px solid color-mix(in srgb,CanvasText 12%,transparent);border-radius:12px;background:color-mix(in srgb,CanvasText 3%,Canvas)}.meta-row{display:grid;grid-template-columns:92px minmax(0,1fr);gap:12px;font-size:13px;line-height:1.5}.meta dt{color:color-mix(in srgb,CanvasText 58%,transparent)}.meta dd{min-width:0;margin:0;overflow-wrap:anywhere;font-weight:550}.review{border:1px solid color-mix(in srgb,CanvasText 12%,transparent);border-radius:12px;background:color-mix(in srgb,CanvasText 2%,Canvas)}.review-text{padding:17px 18px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13.5px;line-height:1.58;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.footer{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:15px 26px 17px;border-top:1px solid color-mix(in srgb,CanvasText 13%,transparent);background:Canvas;box-shadow:0 -10px 28px color-mix(in srgb,CanvasText 6%,transparent)}button{min-width:104px;min-height:42px;border:1px solid color-mix(in srgb,CanvasText 22%,transparent);border-radius:9px;padding:9px 18px;font:600 14px/1.2 inherit;background:ButtonFace;color:ButtonText;cursor:pointer}button:hover{background:color-mix(in srgb,ButtonFace 88%,CanvasText 12%)}button:focus-visible{outline:3px solid color-mix(in srgb,#1685ff 55%,transparent);outline-offset:2px}.primary{border-color:#147ce5;background:#147ce5;color:white}.primary:hover{background:#086dcc}@media(max-width:520px){.header{grid-template-columns:38px minmax(0,1fr);padding:18px}.warning{width:38px;height:38px}.scroll-region{padding:16px 18px}.footer{padding:13px 18px}.meta-row{grid-template-columns:1fr;gap:2px}}
+</style></head><body><header class="header"><div class="warning" aria-hidden="true">!</div><div><h1>${title}</h1><p>${message}</p></div></header><main class="scroll-region" tabindex="0"><dl class="meta">${meta}</dl>${detail}</main><footer class="footer"><button id="consent-cancel" type="button">${cancelLabel}</button><button id="consent-approve" class="primary" type="button">${approveLabel}</button></footer></body></html>`
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
 }
 
 function localizeKnownChineseCopy(
@@ -132,6 +168,16 @@ function localizeKnownChineseCopy(
     default:
       return copy
   }
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character]!)
 }
 
 function localizeProviderBindingDetail(detail: string): string {

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { ExtensionConsentBinding } from './extension-consent-service'
-import { localizeProtectedExtensionPrompt } from './protected-extension-prompt'
+import {
+  buildProtectedExtensionConsentDataUrl,
+  localizeProtectedExtensionPrompt
+} from './protected-extension-prompt'
 
 function binding(overrides: Partial<ExtensionConsentBinding> = {}): ExtensionConsentBinding {
   return {
@@ -25,7 +28,7 @@ describe('protected extension prompt localization', () => {
       title: 'Change extension permissions',
       message: 'Change permissions?',
       detail: 'Permission warning.',
-      approveLabel: 'Continue',
+      approveLabel: 'Apply changes',
       cancelLabel: 'Cancel',
       extensionLabel: 'Extension',
       operationLabel: 'Operation',
@@ -53,6 +56,31 @@ describe('protected extension prompt localization', () => {
     expect(prompt.detail).toContain('并不是操作系统沙箱')
   })
 
+  it('builds a fixed-shell consent document with a scrolling review and pinned actions', () => {
+    const dataUrl = buildProtectedExtensionConsentDataUrl({
+      title: '更改扩展权限',
+      message: '要更改 example.video 1.0.0 的权限吗？',
+      detail: '新增权限：\n• workspace.write\n\n<script>alert(1)</script>',
+      approveLabel: '同意更改',
+      cancelLabel: '取消',
+      extensionLabel: '扩展',
+      operationLabel: '操作',
+      workspaceLabel: '工作区',
+      extensionValue: 'example.video 1.0.0',
+      operationValue: 'extension.permissions',
+      workspaceValue: '/Users/example/project'
+    })
+    const html = decodeURIComponent(dataUrl.slice(dataUrl.indexOf(',') + 1))
+
+    expect(html).toContain('grid-template-rows:auto minmax(0,1fr) auto')
+    expect(html).toContain('.scroll-region{min-height:0;overflow-y:auto')
+    expect(html).toContain('<footer class="footer">')
+    expect(html).toContain('id="consent-cancel"')
+    expect(html).toContain('id="consent-approve"')
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+    expect(html).not.toContain('<script>alert(1)</script>')
+  })
+
   it('localizes the permission-change warning used by the right-rail trust review', () => {
     const prompt = localizeProtectedExtensionPrompt(binding(), {
       title: 'Change extension permissions',
@@ -70,7 +98,7 @@ describe('protected extension prompt localization', () => {
     expect(prompt).toMatchObject({
       title: '更改扩展权限',
       message: '要更改 kun-examples.video-editor 0.3.0 的权限吗？',
-      approveLabel: '继续',
+      approveLabel: '同意更改',
       cancelLabel: '取消'
     })
     expect(prompt.detail).toContain('新增的 Broker 权限：\n• workspace.write')
