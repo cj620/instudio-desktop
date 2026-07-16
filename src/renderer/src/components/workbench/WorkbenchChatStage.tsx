@@ -173,6 +173,7 @@ export function WorkbenchChatStage({
             planActionsBusy={planActionsBusy}
             onBuildPlan={onBuildPlan}
             onOpenPlan={onOpenPlan}
+            onComponentPrototypePrompt={composerProps.setInput}
             devPreviewCard={
               devPreviewVisible && devPreviewUrl ? (
                 <DevPreviewLaunchCard

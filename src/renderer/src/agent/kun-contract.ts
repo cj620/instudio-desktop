@@ -508,6 +508,21 @@ export type CoreTurnItemJson = {
   reviewText?: string
 }
 
+export type CoreComponentPrototypeJson = {
+  version: 1
+  status: 'preparing' | 'running' | 'completed' | 'failed'
+  artifactId: string
+  title: string
+  relativePath: string
+  viewport: { width: number; height: number }
+  profile: 'component-designer'
+  childId?: string
+  byteSize?: number
+  contentHash?: string
+  summary?: string
+  error?: string
+}
+
 export type CoreReviewTargetJson =
   | { kind: 'uncommittedChanges' }
   | { kind: 'baseBranch'; branch: string }

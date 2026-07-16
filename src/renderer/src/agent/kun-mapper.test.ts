@@ -747,6 +747,98 @@ describe('create_plan tool mapping', () => {
   })
 })
 
+describe('component prototype mapping', () => {
+  const item = (status: 'preparing' | 'running' | 'completed' | 'failed'): CoreTurnItemJson => ({
+    id: `item_component_${status}`,
+    turnId: 'turn_component',
+    threadId: 'thread_component',
+    role: 'tool',
+    status: 'completed',
+    createdAt: '2026-07-16T00:00:00.000Z',
+    kind: 'tool_result',
+    toolName: 'design_component',
+    callId: 'call_component',
+    output: {
+      status,
+      componentPrototype: {
+        version: 1,
+        status,
+        artifactId: 'component_abcdef1234',
+        title: 'Date range picker',
+        relativePath: '.kun-design/component-prototypes/date-range/prototype.html',
+        viewport: { width: 720, height: 460 },
+        profile: 'component-designer',
+        childId: 'child_component',
+        byteSize: 4096,
+        contentHash: 'a'.repeat(64),
+        summary: 'Added range preview.'
+      }
+    }
+  })
+
+  it('maps preparing and running payloads to a running inline artifact', () => {
+    for (const status of ['preparing', 'running'] as const) {
+      expect(chatBlockFromItem(item(status))).toMatchObject({
+        kind: 'tool',
+        status: 'running',
+        meta: {
+          toolName: 'design_component',
+          componentPrototype: {
+            version: 1,
+            status,
+            artifactId: 'component_abcdef1234',
+            relativePath: '.kun-design/component-prototypes/date-range/prototype.html',
+            viewport: { width: 720, height: 460 },
+            profile: 'component-designer'
+          }
+        }
+      })
+    }
+  })
+
+  it('maps completed and failed prototype status independently of the generic item status', () => {
+    expect(chatBlockFromItem(item('completed'))).toMatchObject({ kind: 'tool', status: 'success' })
+    expect(chatBlockFromItem(item('failed'))).toMatchObject({ kind: 'tool', status: 'error' })
+  })
+
+  it('surfaces the same structured card metadata through a live SSE item update', async () => {
+    let captured: unknown = null
+    const sink: ThreadEventSink = {
+      ...makeSink(),
+      onTool: (event) => {
+        captured = event
+      }
+    }
+
+    await dispatchKunRuntimeEvent({
+      kind: 'item_updated',
+      seq: 18,
+      item: item('running')
+    }, sink, async () => undefined)
+
+    expect(captured).toMatchObject({
+      itemId: 'tool_call_component',
+      status: 'running',
+      meta: {
+        toolName: 'design_component',
+        componentPrototype: {
+          status: 'running',
+          relativePath: '.kun-design/component-prototypes/date-range/prototype.html'
+        }
+      }
+    })
+  })
+
+  it('drops unsafe or malformed prototype paths instead of surfacing a webview', () => {
+    const unsafe = item('completed')
+    ;((unsafe.output as Record<string, unknown>).componentPrototype as Record<string, unknown>).relativePath =
+      '../outside/prototype.html'
+    const block = chatBlockFromItem(unsafe)
+    expect(block).toMatchObject({ kind: 'tool' })
+    if (block?.kind === 'tool') expect(block.meta?.componentPrototype).toBeUndefined()
+  })
+})
+
 describe('user input mapping', () => {
   it('maps structured user-input items without inventing submit-only options', () => {
     const item: CoreTurnItemJson = {

@@ -57,6 +57,24 @@ export type GeneratedFileReference = {
   absolutePath?: string
 }
 
+export type ComponentPrototypeStatus = 'preparing' | 'running' | 'completed' | 'failed'
+
+/** Durable `design_component` result rendered as an inline conversation card. */
+export type ComponentPrototypeMetadata = {
+  version: 1
+  status: ComponentPrototypeStatus
+  artifactId: string
+  title: string
+  relativePath: string
+  viewport: { width: number; height: number }
+  profile: 'component-designer'
+  childId?: string
+  byteSize?: number
+  contentHash?: string
+  summary?: string
+  error?: string
+}
+
 export type UserFileReference = {
   path: string
   relativePath: string

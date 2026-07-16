@@ -14,6 +14,7 @@ import { PresentationFilesPanel } from './PresentationFilesPanel'
 import { presentationFileArtifactsForTurn } from './presentation-file-artifacts'
 import { ReviewPlanCard, ReviewSummaryCard, TurnChangeSummary, WorkMetaRow } from './message-timeline-cards'
 import { ProcessSectionRow, groupProcessSections } from './message-timeline-process'
+import { ComponentPrototypeCard } from './ComponentPrototypeCard'
 import type { OpenChildThreadHandler } from './SubagentCallCard'
 import {
   AnimatedWorkLogo,
@@ -78,6 +79,7 @@ type Props = {
   onOpenPlan?: () => void
   compactCards?: boolean
   onOpenChildThread?: OpenChildThreadHandler
+  onComponentPrototypePrompt?: (prompt: string) => void
   extensionMessageActions?: readonly RegisteredContribution<'actions.message'>[]
   extensionContextMenus?: readonly RegisteredContribution<'contextMenus'>[]
   extensionAttachmentContextMenus?: readonly RegisteredContribution<'contextMenus'>[]
@@ -357,6 +359,7 @@ export function MessageTimeline({
   onOpenPlan,
   compactCards = false,
   onOpenChildThread,
+  onComponentPrototypePrompt,
   extensionMessageActions = [],
   extensionContextMenus = [],
   extensionAttachmentContextMenus = [],
@@ -757,6 +760,7 @@ export function MessageTimeline({
                 onBuildPlan={onBuildPlan}
                 onOpenPlan={onOpenPlan}
                 onOpenChildThread={onOpenChildThread}
+                onComponentPrototypePrompt={onComponentPrototypePrompt}
                 filePreviewWorkspaceRoot={filePreviewWorkspaceRoot}
                 viewportRef={containerRef}
                 compactCards={compactCards}
@@ -819,6 +823,7 @@ export function MessageTimeline({
             filePreviewWorkspaceRoot={filePreviewWorkspaceRoot}
             viewportRef={containerRef}
             onOpenChildThread={onOpenChildThread}
+            onComponentPrototypePrompt={onComponentPrototypePrompt}
             compactCards={compactCards}
             durationMs={
               currentTurnUserId && typeof turnStartedAtByUserId[currentTurnUserId] === 'number'
@@ -869,6 +874,7 @@ function MessageTurn({
   onBuildPlan,
   onOpenPlan,
   onOpenChildThread,
+  onComponentPrototypePrompt,
   filePreviewWorkspaceRoot,
   viewportRef,
   compactCards = false
@@ -884,6 +890,7 @@ function MessageTurn({
   onBuildPlan?: () => void
   onOpenPlan?: () => void
   onOpenChildThread?: OpenChildThreadHandler
+  onComponentPrototypePrompt?: (prompt: string) => void
   filePreviewWorkspaceRoot: string
   viewportRef: RefObject<HTMLDivElement | null>
   compactCards?: boolean
@@ -910,7 +917,7 @@ function MessageTurn({
   const liveProcessText = [liveReasoning, liveThink].filter(Boolean).join('\n\n')
   const [workExpandedOverride, setWorkExpandedOverride] = useState<boolean | null>(null)
 
-  const { processBlocks, assistantContentBlocks, generatedFileBlocks, turnFileChanges } = useMemo(
+  const { processBlocks, assistantContentBlocks, componentPrototypeBlocks, generatedFileBlocks, turnFileChanges } = useMemo(
     () =>
       deriveTurnSections({
         turn,
@@ -1041,6 +1048,15 @@ function MessageTurn({
         </div>
       ) : null}
 
+      {componentPrototypeBlocks.map((block) => (
+        <ComponentPrototypeCard
+          key={block.id}
+          block={block}
+          workspaceRoot={filePreviewWorkspaceRoot}
+          onPrompt={onComponentPrototypePrompt}
+        />
+      ))}
+
       {assistantContentBlocks.map((block) => (
         <MessageBubble
           key={block.id}
@@ -1151,6 +1167,8 @@ const MemoMessageTurn = memo(MessageTurn, (prev, next) => (
   prev.onBuildPlan === next.onBuildPlan &&
   prev.onOpenPlan === next.onOpenPlan &&
   prev.onOpenChildThread === next.onOpenChildThread &&
+  prev.onComponentPrototypePrompt === next.onComponentPrototypePrompt &&
+  prev.filePreviewWorkspaceRoot === next.filePreviewWorkspaceRoot &&
   prev.compactCards === next.compactCards &&
   prev.viewportRef === next.viewportRef
 ))

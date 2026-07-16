@@ -2,6 +2,7 @@ import type {
   ApprovalStatusPayload,
   ChatBlock,
   CompactionEventPayload,
+  ComponentPrototypeMetadata,
   GeneratedFileReference,
   NormalizedThread,
   ReviewBlock,
@@ -627,6 +628,73 @@ function extractToolGeneratedFiles(item: CoreTurnItemJson): GeneratedFileReferen
   return generatedFiles.length > 0 ? generatedFiles : undefined
 }
 
+function extractComponentPrototype(item: CoreTurnItemJson): ComponentPrototypeMetadata | undefined {
+  if (item.toolName !== 'design_component') return undefined
+  const payload = payloadFor(item)
+  const raw = payload.componentPrototype
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const candidate = raw as Record<string, unknown>
+  if (candidate.version !== 1) return undefined
+  const status = candidate.status
+  if (status !== 'preparing' && status !== 'running' && status !== 'completed' && status !== 'failed') {
+    return undefined
+  }
+  const artifactId = typeof candidate.artifactId === 'string' ? candidate.artifactId.trim() : ''
+  const title = typeof candidate.title === 'string' ? candidate.title.trim().slice(0, 120) : ''
+  const relativePath = typeof candidate.relativePath === 'string'
+    ? candidate.relativePath.trim().replaceAll('\\', '/')
+    : ''
+  if (!/^component_[a-z0-9]+$/i.test(artifactId) || !title) return undefined
+  if (
+    !/^\.kun-design\/component-prototypes\/[^/]+\/prototype\.html$/i.test(relativePath) ||
+    relativePath.split('/').includes('..')
+  ) {
+    return undefined
+  }
+  const viewport = candidate.viewport && typeof candidate.viewport === 'object' && !Array.isArray(candidate.viewport)
+    ? candidate.viewport as Record<string, unknown>
+    : null
+  const width = viewport?.width
+  const height = viewport?.height
+  if (
+    typeof width !== 'number' || !Number.isInteger(width) || width < 280 || width > 1_200 ||
+    typeof height !== 'number' || !Number.isInteger(height) || height < 240 || height > 900
+  ) {
+    return undefined
+  }
+  const profile = candidate.profile
+  if (profile !== 'component-designer') return undefined
+  const childId = typeof candidate.childId === 'string' && candidate.childId.trim()
+    ? candidate.childId.trim().slice(0, 256)
+    : undefined
+  const byteSize = typeof candidate.byteSize === 'number' && Number.isInteger(candidate.byteSize) && candidate.byteSize >= 0
+    ? candidate.byteSize
+    : undefined
+  const contentHash = typeof candidate.contentHash === 'string' && /^[a-f0-9]{64}$/i.test(candidate.contentHash)
+    ? candidate.contentHash.toLowerCase()
+    : undefined
+  const summary = typeof candidate.summary === 'string' && candidate.summary.trim()
+    ? candidate.summary.trim().slice(0, 2_000)
+    : undefined
+  const error = typeof candidate.error === 'string' && candidate.error.trim()
+    ? candidate.error.trim().slice(0, 2_000)
+    : undefined
+  return {
+    version: 1,
+    status,
+    artifactId,
+    title,
+    relativePath,
+    viewport: { width, height },
+    profile,
+    ...(childId ? { childId } : {}),
+    ...(byteSize !== undefined ? { byteSize } : {}),
+    ...(contentHash ? { contentHash } : {}),
+    ...(summary ? { summary } : {}),
+    ...(error ? { error } : {})
+  }
+}
+
 function applyCommandResultMeta(meta: Record<string, unknown>, item: CoreTurnItemJson): void {
   const payload = payloadFor(item)
   for (const key of COMMAND_RESULT_META_KEYS) {
@@ -748,6 +816,8 @@ function toolBlockFromItem(item: CoreTurnItemJson, child?: CoreChildRuntimeMetad
   if (attachments) meta.attachments = attachments
   const generatedFiles = extractToolGeneratedFiles(item)
   if (generatedFiles) meta.generatedFiles = generatedFiles
+  const componentPrototype = extractComponentPrototype(item)
+  if (componentPrototype) meta.componentPrototype = componentPrototype
   const presentationStudioToolId = presentationStudioWriteToolId(item)
   if (presentationStudioToolId) {
     meta.canonicalToolId = presentationStudioToolId
@@ -774,12 +844,22 @@ function toolBlockFromItem(item: CoreTurnItemJson, child?: CoreChildRuntimeMetad
     id: toolBlockId(item),
     createdAt: itemCreatedAt(item),
     summary,
-    status: delegateTaskStatusOverride(item, payload) ?? toolStatus(item),
+    status: componentDesignStatusOverride(item, componentPrototype) ?? delegateTaskStatusOverride(item, payload) ?? toolStatus(item),
     toolKind: presentation.toolKind,
     ...(presentation.filePath ? { filePath: presentation.filePath } : {}),
     ...(detail ? { detail } : {}),
     meta
   }
+}
+
+function componentDesignStatusOverride(
+  item: CoreTurnItemJson,
+  prototype: ComponentPrototypeMetadata | undefined
+): ToolBlock['status'] | undefined {
+  if (item.toolName !== 'design_component' || !prototype) return undefined
+  if (prototype.status === 'preparing' || prototype.status === 'running') return 'running'
+  if (prototype.status === 'failed') return 'error'
+  return 'success'
 }
 
 function delegateTaskStatusOverride(

@@ -36,6 +36,7 @@ import { buildMcpToolProviders } from '../adapters/tool/mcp-tool-provider.js'
 import { buildMemoryToolProviders } from '../adapters/tool/memory-tool-provider.js'
 import { buildSkillToolProviders } from '../adapters/tool/skill-tool-provider.js'
 import { buildDelegationToolProviders } from '../adapters/tool/delegation-tool-provider.js'
+import { buildComponentDesignToolProviders } from '../adapters/tool/component-design-tool-provider.js'
 import { buildWebToolProviders } from '../adapters/tool/web-tool-provider.js'
 import { buildImageGenToolProviders } from '../adapters/tool/image-gen-tool-provider.js'
 import { buildComputerUseToolProviders } from '../adapters/tool/computer-use-tool-provider.js'
@@ -703,7 +704,8 @@ export async function createKunServeRuntime(
       available: true,
       tools: [taskGraphTool]
     },
-    ...buildDelegationToolProviders(delegationRuntime)
+    ...buildDelegationToolProviders(delegationRuntime),
+    ...buildComponentDesignToolProviders(delegationRuntime)
   ])
   let prepareExtensionContributions: ((context?: ToolHostContext) => Promise<void>) | undefined
   const toolHost = new LocalToolHost({
@@ -1459,7 +1461,8 @@ export async function createKunServeRuntime(
 	        available: true,
 	        tools: [taskGraphTool]
 	      },
-	      ...buildDelegationToolProviders(delegationRuntime)
+	      ...buildDelegationToolProviders(delegationRuntime),
+	      ...buildComponentDesignToolProviders(delegationRuntime)
 	    ])
 
 	    const previousMcpProviders = mcpProviders

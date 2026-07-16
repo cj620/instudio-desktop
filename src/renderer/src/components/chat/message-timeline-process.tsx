@@ -935,6 +935,8 @@ function builtInToolLabel(
       // Routed to SubagentCallCard before the generic row; labeled here as a
       // defensive fallback so an ungrouped delegate block never reads as raw JSON.
       return t('toolBuiltinDelegate')
+    case 'design_component':
+      return t('toolBuiltinDesignComponent')
     default:
       return undefined
   }
