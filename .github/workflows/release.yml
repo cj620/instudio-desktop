@@ -54,10 +54,10 @@ jobs:
         run: npm run dist:mac
 
       - name: Smoke packaged Extension Node runtime (macOS x64)
-        run: npm run smoke:packaged-extensions -- --resources dist/mac/Xiaoyuan.app/Contents/Resources
+        run: npm run smoke:packaged-extensions -- --resources dist/mac/小元.app/Contents/Resources
 
       - name: Smoke packaged Extension Node runtime (macOS arm64)
-        run: npm run smoke:packaged-extensions -- --resources dist/mac-arm64/Xiaoyuan.app/Contents/Resources
+        run: npm run smoke:packaged-extensions -- --resources dist/mac-arm64/小元.app/Contents/Resources
 
       - name: Smoke packaged Extension desktop Chromium (host-native macOS)
         run: npm run smoke:packaged-extension-desktop

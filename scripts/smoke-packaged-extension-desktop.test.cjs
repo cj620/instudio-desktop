@@ -659,8 +659,8 @@ test('every automated and local release path gates uploads behind packaged Exten
   assertPublishDependencies(daily, 'daily prerelease')
 
   assertOrderedCommands(release.jobs['build-macos'], [
-    'npm run smoke:packaged-extensions -- --resources dist/mac/Xiaoyuan.app/Contents/Resources',
-    'npm run smoke:packaged-extensions -- --resources dist/mac-arm64/Xiaoyuan.app/Contents/Resources',
+    'npm run smoke:packaged-extensions -- --resources dist/mac/小元.app/Contents/Resources',
+    'npm run smoke:packaged-extensions -- --resources dist/mac-arm64/小元.app/Contents/Resources',
     desktopCommand,
     nativeEvidenceCommand
   ])

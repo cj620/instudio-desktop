@@ -833,7 +833,7 @@ const stableReleaseDependencies = isXiaoyuanStableRelease
   ? ['build-macos', 'build-windows']
   : ['prepare', 'build-macos', 'build-windows', 'build-linux']
 const stableMacBuildCommand = isXiaoyuanStableRelease ? 'npm run dist:mac' : 'npm run dist:mac:signed'
-const stableMacProductName = isXiaoyuanStableRelease ? 'Xiaoyuan' : 'Kun'
+const stableMacProductName = isXiaoyuanStableRelease ? '小元' : 'Kun'
 requirePublishDependencies(releaseWorkflowDocument, 'Stable release workflow', stableReleaseDependencies)
 const stableReleaseMarkers = [
   'runs-on: macos-latest',
