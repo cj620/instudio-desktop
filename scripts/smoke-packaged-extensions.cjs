@@ -196,7 +196,7 @@ function resolvePackagedRuntimeExecutable(resourcesDir, explicit) {
   }
   const appOutDir = dirname(resourcesDir)
   const names = process.platform === 'win32'
-    ? ['Kun.exe']
+    ? ['Kun.exe', '小元.exe']
     : ['kun', 'Kun', 'kun-gui']
   const candidate = names.map((name) => join(appOutDir, name)).find(existsSync)
   if (!candidate) {

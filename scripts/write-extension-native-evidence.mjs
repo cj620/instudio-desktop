@@ -11,7 +11,7 @@ const VERSION_PART = '[0-9A-Za-z][0-9A-Za-z._-]*'
 
 export const ARTIFACT_RULES = {
   darwin: {
-    pattern: new RegExp(`^Kun-${VERSION_PART}-mac-(arm64|x64)\\.(dmg|zip)$`),
+    pattern: new RegExp(`^(Kun|Xiaoyuan)-${VERSION_PART}-mac-(arm64|x64)\\.(dmg|zip)$`),
     required: [
       /-mac-arm64\.dmg$/,
       /-mac-arm64\.zip$/,
@@ -20,7 +20,7 @@ export const ARTIFACT_RULES = {
     ]
   },
   win32: {
-    pattern: new RegExp(`^Kun-${VERSION_PART}-win-x64\\.exe$`),
+    pattern: new RegExp(`^(Kun|Xiaoyuan)-${VERSION_PART}-win-x64\\.exe$`),
     required: [/-win-x64\.exe$/]
   },
   linux: {

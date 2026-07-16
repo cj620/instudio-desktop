@@ -20,21 +20,21 @@ async function temporaryDist(t) {
 test('collects exactly the final two-architecture macOS artifacts', async (t) => {
   const dist = await temporaryDist(t)
   for (const name of [
-    'Kun-1.2.3-dev-4-mac-arm64.dmg',
-    'Kun-1.2.3-dev-4-mac-arm64.zip',
-    'Kun-1.2.3-dev-4-mac-x64.dmg',
-    'Kun-1.2.3-dev-4-mac-x64.zip'
+    'Xiaoyuan-1.2.3-dev-4-mac-arm64.dmg',
+    'Xiaoyuan-1.2.3-dev-4-mac-arm64.zip',
+    'Xiaoyuan-1.2.3-dev-4-mac-x64.dmg',
+    'Xiaoyuan-1.2.3-dev-4-mac-x64.zip'
   ]) await writeFile(join(dist, name), name)
-  await writeFile(join(dist, 'Kun-1.2.3-dev-4-mac-arm64.zip.blockmap'), 'ignored')
+  await writeFile(join(dist, 'Xiaoyuan-1.2.3-dev-4-mac-arm64.zip.blockmap'), 'ignored')
 
   assert.deepEqual(
     (await collectNativeArtifacts({ distDirectory: dist, platform: 'darwin' }))
       .map((path) => path.slice(dist.length + 1)),
     [
-      'Kun-1.2.3-dev-4-mac-arm64.dmg',
-      'Kun-1.2.3-dev-4-mac-arm64.zip',
-      'Kun-1.2.3-dev-4-mac-x64.dmg',
-      'Kun-1.2.3-dev-4-mac-x64.zip'
+      'Xiaoyuan-1.2.3-dev-4-mac-arm64.dmg',
+      'Xiaoyuan-1.2.3-dev-4-mac-arm64.zip',
+      'Xiaoyuan-1.2.3-dev-4-mac-x64.dmg',
+      'Xiaoyuan-1.2.3-dev-4-mac-x64.zip'
     ]
   )
 })
