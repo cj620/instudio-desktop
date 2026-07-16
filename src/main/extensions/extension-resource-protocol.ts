@@ -18,6 +18,11 @@ export const KUN_EXTENSION_CSP = [
   "form-action 'none'"
 ].join('; ')
 
+export const KUN_EXTERNAL_WEBVIEW_EXTENSION_CSP = KUN_EXTENSION_CSP.replace(
+  "frame-src 'none'",
+  'frame-src https:'
+)
+
 const EXTENSION_ID = /^[a-z0-9][a-z0-9-]{0,63}\.[a-z0-9][a-z0-9-]{0,63}$/
 const MAX_RESOURCE_BYTES = 32 * 1024 * 1024
 
@@ -28,6 +33,7 @@ export type ExtensionResourceDescriptor = {
   exactFiles: string[]
   localResourceRoots: string[]
   hostIconFiles?: string[]
+  allowExternalWebview?: boolean
 }
 
 export type ExtensionResourceDescriptorResolver = (
@@ -70,7 +76,11 @@ export function registerKunExtensionProtocol(options: {
       if (bytes.byteLength > MAX_RESOURCE_BYTES) throw new ExtensionResourceError('RESOURCE_TOO_LARGE')
       return new Response(new Uint8Array(bytes), {
         status: 200,
-        headers: extensionResourceHeaders(resource.relativePath, resource.hostResource === 'icon')
+        headers: extensionResourceHeaders(
+          resource.relativePath,
+          resource.hostResource === 'icon',
+          resource.descriptor.allowExternalWebview === true
+        )
       })
     } catch (error) {
       const extensionId = safeExtensionIdFromUrl(request.url)
@@ -225,11 +235,14 @@ export function parseKunExtensionUrl(rawUrl: string): {
 
 export function extensionResourceHeaders(
   relativePath: string,
-  allowHostImageEmbedding = false
+  allowHostImageEmbedding = false,
+  allowExternalWebview = false
 ): Record<string, string> {
   return {
     'Content-Type': safeContentType(relativePath),
-    'Content-Security-Policy': KUN_EXTENSION_CSP,
+    'Content-Security-Policy': allowExternalWebview
+      ? KUN_EXTERNAL_WEBVIEW_EXTENSION_CSP
+      : KUN_EXTENSION_CSP,
     'Cache-Control': 'no-store',
     'Cross-Origin-Resource-Policy': allowHostImageEmbedding ? 'cross-origin' : 'same-origin',
     'Referrer-Policy': 'no-referrer',

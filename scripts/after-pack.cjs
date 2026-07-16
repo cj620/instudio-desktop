@@ -55,7 +55,8 @@ const BUNDLED_EXTENSIONS_DIR = 'bundled-extensions'
 const BUNDLED_EXTENSION_CATALOG_FILE = 'catalog.json'
 const REQUIRED_BUNDLED_EXTENSION_IDS = [
   'kun-examples.kun-video-editor',
-  'kun-examples.presentation-studio'
+  'kun-examples.presentation-studio',
+  'kun-examples.social-media-sidebar'
 ]
 
 function normalizePlatform(platform) {

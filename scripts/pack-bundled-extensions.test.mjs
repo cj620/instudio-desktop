@@ -21,10 +21,14 @@ function manifest(name, overrides = {}) {
   }
 }
 
-test('declares both product-owned default extensions', () => {
+test('declares every product-owned default extension', () => {
   assert.deepEqual(
     BUNDLED_EXTENSION_DEFINITIONS.map((entry) => entry.id),
-    ['kun-examples.kun-video-editor', 'kun-examples.presentation-studio']
+    [
+      'kun-examples.kun-video-editor',
+      'kun-examples.presentation-studio',
+      'kun-examples.social-media-sidebar'
+    ]
   )
 })
 
@@ -72,7 +76,11 @@ test('sorts catalog entries and rejects duplicate extension ids', () => {
   const catalog = bundledExtensionCatalog(entries)
   assert.deepEqual(
     catalog.extensions.map((entry) => entry.id),
-    ['kun-examples.kun-video-editor', 'kun-examples.presentation-studio']
+    [
+      'kun-examples.kun-video-editor',
+      'kun-examples.presentation-studio',
+      'kun-examples.social-media-sidebar'
+    ]
   )
   assert.throws(
     () => bundledExtensionCatalog([entries[0], entries[0]]),

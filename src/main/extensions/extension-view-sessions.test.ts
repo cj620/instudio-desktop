@@ -1,11 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  hardenExternalWebPreferences,
   hardenExtensionWebPreferences,
   installWebviewSecurityGuards,
+  isAllowedExternalWebviewRequest,
+  isAllowedExternalWebviewSubresource,
   isAllowedExtensionNavigation,
   isAllowedExtensionSubresource
 } from './extension-webview-security'
-import { ExtensionViewSessionRegistry } from './extension-view-sessions'
+import {
+  ExtensionViewSessionRegistry,
+  isAllowedExternalWebviewUrl
+} from './extension-view-sessions'
 
 describe('ExtensionViewSessionRegistry', () => {
   it('binds a guest once to the exact parent, extension and entry', () => {
@@ -153,6 +159,104 @@ describe('ExtensionViewSessionRegistry', () => {
       '--kun-extension-view-session=1234567890abcdef',
       expect.stringMatching(/^--kun-extension-view-nonce=.{32,}$/)
     ])
+    expect((preferences as unknown as { webviewTag: boolean }).webviewTag).toBe(false)
+  })
+
+  it('keeps reviewed external Views unable to create nested Webviews', () => {
+    const registry = new ExtensionViewSessionRegistry(() => 1_000)
+    const created = registry.create({
+      sessionId: '1234567890abcdef',
+      extensionId: 'acme.social',
+      extensionVersion: '1.0.0',
+      contributionId: 'social',
+      entryPath: 'dist/index.html',
+      externalWebviewHosts: ['bilibili.com', '*.bilibili.com'],
+      parentWebContentsId: 10
+    })
+    registry.prepareAttach(10, created.sourceUrl)
+    const parent = {
+      id: 20,
+      once: vi.fn(),
+      on: vi.fn(),
+      isDestroyed: () => false,
+      close: vi.fn()
+    }
+    registry.bindNextGuest(10, parent as never)
+
+    const parentPreferences = {}
+    hardenExtensionWebPreferences(
+      parentPreferences as never,
+      created,
+      '/kun/extension-view.cjs'
+    )
+    expect(parentPreferences).toMatchObject({ webviewTag: false })
+
+    const external = registry.prepareExternalAttach(20, 'https://www.bilibili.com/video/BV1')
+    const preferences = {
+      preload: '/attacker/preload.js',
+      nodeIntegration: true,
+      webviewTag: true,
+      partition: 'persist:shared'
+    }
+    hardenExternalWebPreferences(preferences as never, external)
+    expect(preferences).toMatchObject({
+      nodeIntegration: false,
+      webviewTag: false,
+      partition: expect.stringMatching(/^persist:kun-external-/)
+    })
+    expect('preload' in preferences).toBe(false)
+
+    const child = {
+      id: 30,
+      once: vi.fn(),
+      isDestroyed: () => false,
+      close: vi.fn()
+    }
+    registry.bindNextExternalGuest(20, child as never)
+    expect(registry.findExternalByGuest(30)).toMatchObject({
+      parentSessionId: created.sessionId,
+      extensionId: 'acme.social',
+      state: 'active'
+    })
+    expect(() => registry.prepareExternalAttach(20, 'https://example.com/')).toThrow(
+      /not granted/
+    )
+    expect(registry.dispose(created.sessionId)).toBe(true)
+    expect(child.close).toHaveBeenCalledOnce()
+  })
+
+  it('matches only HTTPS external navigation grants and safe subresource schemes', () => {
+    const hosts = ['bilibili.com', '*.bilibili.com']
+    expect(isAllowedExternalWebviewUrl('https://bilibili.com/', hosts)).toBe(true)
+    expect(isAllowedExternalWebviewUrl('https://space.bilibili.com/123', hosts)).toBe(true)
+    expect(isAllowedExternalWebviewUrl('https://notbilibili.com/', hosts)).toBe(false)
+    expect(isAllowedExternalWebviewUrl('http://www.bilibili.com/', hosts)).toBe(false)
+    expect(isAllowedExternalWebviewUrl('file:///tmp/secret', hosts)).toBe(false)
+    expect(isAllowedExternalWebviewSubresource('https://i0.hdslb.com/image.jpg')).toBe(true)
+    expect(isAllowedExternalWebviewSubresource('wss://broadcast.example/socket')).toBe(true)
+    expect(isAllowedExternalWebviewSubresource('file:///tmp/secret')).toBe(false)
+    expect(isAllowedExternalWebviewSubresource('http://example.com/tracker')).toBe(false)
+    expect(isAllowedExternalWebviewRequest(
+      'https://www.bilibili.com/video/BV1',
+      'mainFrame',
+      { allowedHosts: hosts }
+    )).toBe(true)
+    expect(isAllowedExternalWebviewRequest(
+      'https://example.com/phishing',
+      'mainFrame',
+      { allowedHosts: hosts }
+    )).toBe(false)
+    expect(isAllowedExternalWebviewRequest(
+      'https://example.com/script.js',
+      'script',
+      { allowedHosts: hosts }
+    )).toBe(true)
+    expect(isAllowedExternalWebviewRequest(
+      'https://www.bilibili.com/',
+      'mainFrame',
+      undefined,
+      true
+    )).toBe(true)
   })
 
   it('allows only navigation within the bound extension origin', () => {
@@ -313,6 +417,7 @@ describe('ExtensionViewSessionRegistry', () => {
     })
     const guest = {
       id: 20,
+      session: { getPartition: () => 'temp:unbound-webview' },
       on: vi.fn((event: string, listener: (...args: never[]) => void) => {
         guestListeners.set(event, listener)
       }),

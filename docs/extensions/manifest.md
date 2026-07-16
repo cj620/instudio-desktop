@@ -184,6 +184,8 @@ v1 支持：
 
 `views.rightSidebar` 是新扩展的规范可发现 UI：View 的包内 icon 和本地化标题会出现在 Code 模式右侧竖向图标栏，并在主会话旁打开独立标签。其它 `views.*` 位置继续保留 Extension API v1 解析和命令路由兼容，但宿主不会为它们生成额外的聚合扩展选择器。
 
+需要固定远程网站时，View 可声明 `externalBrowser: { presentation, sites }`。`presentation` 为 `desktop` 或 `mobile`；每个 site 只接受 `id`、`title`、可选 badge/accent 和 credential-free HTTPS `url`。这要求 `webview.external`，且每个 site hostname 必须匹配显式 `network:` grant。远程页由 Main-owned browser surface 承载，不加载扩展 `entry` 或 bridge。
+
 ### Contribution 隐含权限
 
 Validator 从入口/贡献自动推导并强制以下最小权限；缺少时 Manifest 无效：
@@ -194,6 +196,7 @@ Validator 从入口/贡献自动推导并强制以下最小权限；缺少时 Ma
 | `commands` | `commands.register` |
 | `views.containers` | `ui.views` |
 | 任意 `views.*` View | `ui.views`, `webview` |
+| 带 `externalBrowser` 的 View | `webview.external` 和每个 site 的 `network:<hostname>` |
 | `message.resultPreviews` | `ui.views`, `webview` |
 | `actions.*`, `settings`, `contextMenus` | `ui.actions` |
 | `notifications` | `ui.notifications` |
@@ -287,6 +290,7 @@ v1 权限是精确字符串数组：
 | `ui.actions` | 提供宿主渲染的 action/menu/settings controls |
 | `ui.notifications` | 请求宿主通知 |
 | `webview` | 创建声明的复杂 Webview UI |
+| `webview.external` | 在隔离子 Webview 中显示经 `network:*` 授权的远程 HTTPS 网站（高风险） |
 | `hostDom` | 注入声明的 Direct DOM content scripts（高风险） |
 | `agent.run` | 创建和控制 extension-owned Agent Run |
 | `agent.threads.readOwn` | 查询本扩展拥有的 thread/run 投影 |
@@ -302,7 +306,7 @@ v1 权限是精确字符串数组：
 | `workspace.read` | 通过 Broker 读取获准工作区 |
 | `workspace.write` | 通过 Broker 写入获准工作区，仍受政策/审批限制 |
 
-只声明最小权限。新增权限的包版本不会继承旧同意：用户必须在受保护窗口重新确认。权限不会让 browser 或 content script 获得 Node/秘密，也不能绕过 Kun ApprovalGate。详见[安全与资源](./security-and-resources.md)。
+只声明最小权限。新增权限的包版本不会继承旧同意：用户必须在受保护窗口重新确认。`webview.external` 还要求显式的 `network:<hostname>` 授权；该网络授权在这里限制远程子 Webview 的顶层导航，子页面绝不会获得 Kun preload、Node 或 Electron。权限不会让普通 browser 或 content script 获得 Node/秘密，也不能绕过 Kun ApprovalGate。详见[安全与资源](./security-and-resources.md)。
 
 ## Direct DOM 声明
 

@@ -36,7 +36,10 @@ export function extensionViewSessionContractKey(
     owner.kind === 'extension' ? owner.source ?? null : null,
     owner.kind === 'extension' ? [...owner.grantedPermissions].sort() : [],
     contribution.payload.entry,
-    [...contribution.payload.localResourceRoots].sort()
+    [...contribution.payload.localResourceRoots].sort(),
+    'externalBrowser' in contribution.payload
+      ? contribution.payload.externalBrowser ?? null
+      : null
   ])
 }
 

@@ -149,6 +149,7 @@ import {
 } from './extensions/extension-media-protocol'
 import { ExtensionDescriptorResolver } from './extensions/extension-descriptor-resolver'
 import { ExtensionViewSessionRegistry } from './extensions/extension-view-sessions'
+import { ExtensionExternalBrowserManager } from './extensions/extension-external-browser'
 import { ExtensionViewProtocolRegistry } from './extensions/extension-view-protocol-registry'
 import { installWebviewSecurityGuards } from './extensions/extension-webview-security'
 import {
@@ -286,6 +287,7 @@ let trayMenuOpenPromise: Promise<void> | null = null
 let closeWindowPromptOpen = false
 let checkpointCleanupTimer: ReturnType<typeof setInterval> | null = null
 const extensionViewSessions = new ExtensionViewSessionRegistry()
+const extensionExternalBrowsers = new ExtensionExternalBrowserManager(extensionViewSessions)
 let protectedCredentialSurface: ProtectedCredentialSurfaceController | null = null
 let bindExtensionMainWindow: ((window: BrowserWindow) => void) | undefined
 
@@ -1865,6 +1867,7 @@ app.whenReady().then(async () => {
     descriptors: extensionDescriptors,
     viewSessions: extensionViewSessions,
     viewProtocols: extensionViewProtocols,
+    externalBrowsers: extensionExternalBrowsers,
     mediaProtocols: extensionMediaProtocols,
     protectedActions: protectedExtensionActions,
     credentialSurface: protectedCredentialSurface,
@@ -1915,6 +1918,7 @@ app.whenReady().then(async () => {
     stopSecretRevealConsentPump()
     stopExtensionNotificationPump()
     extensionIpcRegistration.dispose()
+    extensionExternalBrowsers.destroy()
     bindExtensionMainWindow = undefined
     nativeTheme.removeListener('updated', onNativeThemeUpdated)
     mainWindow?.webContents.removeListener('zoom-changed', onWorkbenchZoomChanged)

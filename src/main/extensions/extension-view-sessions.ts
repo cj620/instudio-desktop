@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import type { WebContents, WebFrameMain } from 'electron'
 import { parseKunExtensionUrl } from './extension-resource-protocol'
@@ -11,6 +11,7 @@ export type ExtensionViewSessionRecord = {
   contributionId: string
   workspaceRoot?: string
   entryPath: string
+  externalWebviewHosts: string[]
   sourceUrl: string
   partition: string
   nonce: string
@@ -19,6 +20,19 @@ export type ExtensionViewSessionRecord = {
   guestMainFrameProcessId?: number
   guestMainFrameRoutingId?: number
   state: 'pending' | 'attaching' | 'active' | 'disposed'
+  createdAt: number
+}
+
+export type ExtensionExternalWebviewRecord = {
+  externalId: string
+  parentSessionId: string
+  extensionId: string
+  allowedHosts: string[]
+  sourceUrl: string
+  partition: string
+  parentWebContentsId: number
+  guestWebContentsId?: number
+  state: 'attaching' | 'active' | 'disposed'
   createdAt: number
 }
 
@@ -35,6 +49,10 @@ export class ExtensionViewSessionRegistry {
   private readonly byGuest = new Map<number, string>()
   private readonly guests = new Map<number, WebContents>()
   private readonly attachingByParent = new Map<number, string[]>()
+  private readonly externalRecords = new Map<string, ExtensionExternalWebviewRecord>()
+  private readonly externalByGuest = new Map<number, string>()
+  private readonly externalGuests = new Map<number, WebContents>()
+  private readonly externalAttachingByParent = new Map<number, string[]>()
   private readonly mainFrameNavigationPending = new Set<string>()
   private readonly disposeListeners = new Set<(record: ExtensionViewSessionRecord) => void>()
   private readonly mainFrameChangeListeners = new Set<(record: ExtensionViewSessionRecord) => void>()
@@ -50,6 +68,7 @@ export class ExtensionViewSessionRegistry {
     contributionId: string
     workspaceRoot?: string
     entryPath: string
+    externalWebviewHosts?: string[]
     parentWebContentsId: number
   }): ExtensionViewSessionRecord {
     if (this.records.has(input.sessionId)) {
@@ -64,6 +83,7 @@ export class ExtensionViewSessionRegistry {
     sourceUrl.searchParams.set('kunViewSession', input.sessionId)
     const record: ExtensionViewSessionRecord = {
       ...input,
+      externalWebviewHosts: normalizeExternalHostPatterns(input.externalWebviewHosts ?? []),
       runtimeSessionId: input.runtimeSessionId ?? input.sessionId,
       sourceUrl: sourceUrl.toString(),
       partition: `temp:kun-extension-${partitionDigest}`,
@@ -157,6 +177,104 @@ export class ExtensionViewSessionRegistry {
       )
     })
     return { ...record }
+  }
+
+  prepareExternalAttach(
+    parentWebContentsId: number,
+    rawUrl: string
+  ): ExtensionExternalWebviewRecord {
+    const parent = this.findByGuest(parentWebContentsId)
+    if (
+      !parent ||
+      parent.state !== 'active' ||
+      parent.externalWebviewHosts.length === 0 ||
+      !isAllowedExternalWebviewUrl(rawUrl, parent.externalWebviewHosts)
+    ) {
+      throw new ExtensionViewSessionError(
+        'EXTENSION_EXTERNAL_WEBVIEW_DENIED',
+        'External Webview navigation is not granted.'
+      )
+    }
+    const existing = [...this.externalRecords.values()].find(
+      (record) => record.parentSessionId === parent.sessionId && record.state !== 'disposed'
+    )
+    if (existing) {
+      throw new ExtensionViewSessionError(
+        'EXTENSION_EXTERNAL_WEBVIEW_DUPLICATE',
+        'Only one external Webview is allowed per extension View Session.'
+      )
+    }
+    const externalId = `external_${randomUUID()}`
+    const partitionDigest = createHash('sha256')
+      .update(`external-webview\0${parent.extensionId}`)
+      .digest('hex')
+      .slice(0, 32)
+    const record: ExtensionExternalWebviewRecord = {
+      externalId,
+      parentSessionId: parent.sessionId,
+      extensionId: parent.extensionId,
+      allowedHosts: [...parent.externalWebviewHosts],
+      sourceUrl: new URL(rawUrl).toString(),
+      partition: `persist:kun-external-${partitionDigest}`,
+      parentWebContentsId,
+      state: 'attaching',
+      createdAt: this.now()
+    }
+    this.externalRecords.set(externalId, record)
+    const queue = this.externalAttachingByParent.get(parentWebContentsId) ?? []
+    queue.push(externalId)
+    this.externalAttachingByParent.set(parentWebContentsId, queue)
+    return { ...record, allowedHosts: [...record.allowedHosts] }
+  }
+
+  bindNextExternalGuest(
+    parentWebContentsId: number,
+    guest: WebContents
+  ): ExtensionExternalWebviewRecord | undefined {
+    const queue = this.externalAttachingByParent.get(parentWebContentsId)
+    const externalId = queue?.shift()
+    if (queue?.length === 0) this.externalAttachingByParent.delete(parentWebContentsId)
+    if (!externalId) return undefined
+    const record = this.externalRecords.get(externalId)
+    if (!record || record.state !== 'attaching') return undefined
+    record.guestWebContentsId = guest.id
+    record.state = 'active'
+    this.externalByGuest.set(guest.id, externalId)
+    this.externalGuests.set(guest.id, guest)
+    guest.once('destroyed', () => this.disposeExternal(externalId, false))
+    return { ...record, allowedHosts: [...record.allowedHosts] }
+  }
+
+  findExternalByGuest(guestWebContentsId: number): ExtensionExternalWebviewRecord | undefined {
+    const externalId = this.externalByGuest.get(guestWebContentsId)
+    const record = externalId ? this.externalRecords.get(externalId) : undefined
+    return record ? { ...record, allowedHosts: [...record.allowedHosts] } : undefined
+  }
+
+  activateHostManaged(sessionId: string): ExtensionViewSessionRecord {
+    const record = this.records.get(sessionId)
+    if (
+      !record ||
+      record.state === 'disposed' ||
+      record.externalWebviewHosts.length === 0 ||
+      record.guestWebContentsId !== undefined
+    ) {
+      throw new ExtensionViewSessionError(
+        'EXTENSION_VIEW_SESSION_INVALID',
+        'View Session cannot host an external browser.'
+      )
+    }
+    record.state = 'active'
+    return { ...record, externalWebviewHosts: [...record.externalWebviewHosts] }
+  }
+
+  isPreparedExternalNavigation(parentWebContentsId: number, rawUrl: string): boolean {
+    return [...this.externalRecords.values()].some(
+      (record) =>
+        record.state === 'attaching' &&
+        record.parentWebContentsId === parentWebContentsId &&
+        record.sourceUrl === rawUrl
+    )
   }
 
   requireGuest(
@@ -269,6 +387,9 @@ export class ExtensionViewSessionRegistry {
     record.state = 'disposed'
     this.records.delete(sessionId)
     this.mainFrameNavigationPending.delete(sessionId)
+    for (const external of [...this.externalRecords.values()]) {
+      if (external.parentSessionId === sessionId) this.disposeExternal(external.externalId)
+    }
     if (record.guestWebContentsId !== undefined) {
       this.byGuest.delete(record.guestWebContentsId)
       const guest = this.guests.get(record.guestWebContentsId)
@@ -346,5 +467,61 @@ export class ExtensionViewSessionRegistry {
         // Frame invalidation must not be blocked by one observer.
       }
     }
+  }
+
+  private disposeExternal(externalId: string, closeGuest = true): boolean {
+    const record = this.externalRecords.get(externalId)
+    if (!record) return false
+    record.state = 'disposed'
+    this.externalRecords.delete(externalId)
+    if (record.guestWebContentsId !== undefined) {
+      this.externalByGuest.delete(record.guestWebContentsId)
+      const guest = this.externalGuests.get(record.guestWebContentsId)
+      this.externalGuests.delete(record.guestWebContentsId)
+      if (closeGuest && guest && !guest.isDestroyed()) guest.close()
+    }
+    for (const [parentId, queue] of this.externalAttachingByParent) {
+      const filtered = queue.filter((candidate) => candidate !== externalId)
+      if (filtered.length === 0) this.externalAttachingByParent.delete(parentId)
+      else if (filtered.length !== queue.length) {
+        this.externalAttachingByParent.set(parentId, filtered)
+      }
+    }
+    return true
+  }
+}
+
+const EXTERNAL_HOST_PATTERN = /^(?:\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+
+function normalizeExternalHostPatterns(values: readonly string[]): string[] {
+  const normalized = values
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => EXTERNAL_HOST_PATTERN.test(value))
+  return [...new Set(normalized)].sort().slice(0, 64)
+}
+
+export function isAllowedExternalWebviewUrl(
+  rawUrl: string,
+  allowedHosts: readonly string[]
+): boolean {
+  if (rawUrl.length === 0 || rawUrl.length > 8_192) return false
+  try {
+    const url = new URL(rawUrl)
+    if (
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      (url.port && url.port !== '443')
+    ) {
+      return false
+    }
+    const hostname = url.hostname.toLowerCase()
+    return normalizeExternalHostPatterns(allowedHosts).some((allowed) =>
+      allowed.startsWith('*.')
+        ? hostname.endsWith(allowed.slice(1)) && hostname !== allowed.slice(2)
+        : hostname === allowed
+    )
+  } catch {
+    return false
   }
 }

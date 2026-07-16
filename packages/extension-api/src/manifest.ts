@@ -10,7 +10,7 @@ import {
   SemverRangeSchema,
   SemverSchema
 } from './common.js'
-import { PermissionSchema } from './permissions.js'
+import { PermissionSchema, permissionMatches } from './permissions.js'
 import { ModelProviderDeclarationSchema } from './providers.js'
 import { ExtensionToolDeclarationSchema } from './tools.js'
 
@@ -49,6 +49,38 @@ export const ViewContainerContributionSchema = z.strictObject({
 })
 export type ViewContainerContribution = z.infer<typeof ViewContainerContributionSchema>
 
+export const ExternalBrowserSiteSchema = z.strictObject({
+  id: LocalIdSchema,
+  title: z.string().min(1).max(64),
+  badge: z.string().min(1).max(4).optional(),
+  accent: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  url: z.string().min(1).max(2048).superRefine((value, context) => {
+    try {
+      const url = new URL(value)
+      if (
+        url.protocol !== 'https:' ||
+        url.username ||
+        url.password ||
+        (url.port && url.port !== '443')
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'External browser sites must use credential-free HTTPS URLs on the default port'
+        })
+      }
+    } catch {
+      context.addIssue({ code: 'custom', message: 'External browser site URL is invalid' })
+    }
+  })
+})
+export type ExternalBrowserSite = z.infer<typeof ExternalBrowserSiteSchema>
+
+export const ExternalBrowserContributionSchema = z.strictObject({
+  presentation: z.enum(['desktop', 'mobile']).default('desktop'),
+  sites: z.array(ExternalBrowserSiteSchema).min(1).max(12)
+})
+export type ExternalBrowserContribution = z.infer<typeof ExternalBrowserContributionSchema>
+
 export const ViewContributionSchema = z.strictObject({
   id: LocalIdSchema,
   title: z.string().min(1).max(128),
@@ -58,7 +90,8 @@ export const ViewContributionSchema = z.strictObject({
   when: WhenExpressionSchema.optional(),
   order: OrderSchema,
   multiple: z.boolean().default(false),
-  localResourceRoots: z.array(RelativePathSchema).max(32).default([])
+  localResourceRoots: z.array(RelativePathSchema).max(32).default([]),
+  externalBrowser: ExternalBrowserContributionSchema.optional()
 })
 export type ViewContribution = z.infer<typeof ViewContributionSchema>
 
@@ -367,6 +400,59 @@ export const ExtensionManifestSchema = StructuralExtensionManifestSchema.superRe
           path: ['permissions'],
           message: `Permission ${permission} is required by the declared entrypoints or contributions`
         })
+      }
+    }
+    if (
+      manifest.permissions.includes('webview.external') &&
+      !manifest.permissions.some((permission) => permission.startsWith('network:'))
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['permissions'],
+        message: 'Permission webview.external requires at least one network:<hostname> grant'
+      })
+    }
+
+    const declaredExternalViews = [
+      ...manifest.contributes['views.leftSidebar'],
+      ...manifest.contributes['views.rightSidebar'],
+      ...manifest.contributes['views.auxiliaryPanel'],
+      ...manifest.contributes['views.editorTab'],
+      ...manifest.contributes['views.fullPage']
+    ].filter((view) => view.externalBrowser !== undefined)
+    for (const view of declaredExternalViews) {
+      if (!manifest.permissions.includes('webview.external')) {
+        context.addIssue({
+          code: 'custom',
+          path: ['permissions'],
+          message: `Permission webview.external is required by View ${view.id}`
+        })
+      }
+      const siteIds = new Set<string>()
+      for (const site of view.externalBrowser!.sites) {
+        if (siteIds.has(site.id)) {
+          context.addIssue({
+            code: 'custom',
+            path: ['contributes'],
+            message: `External browser View ${view.id} has duplicate site id ${site.id}`
+          })
+        }
+        siteIds.add(site.id)
+        let hostname: string
+        try {
+          hostname = new URL(site.url).hostname.toLowerCase()
+        } catch {
+          continue
+        }
+        const requiredPermission = `network:${hostname}`
+        if (!manifest.permissions.some((permission) =>
+          permissionMatches(permission, requiredPermission))) {
+          context.addIssue({
+            code: 'custom',
+            path: ['permissions'],
+            message: `External browser site ${site.id} requires a network grant for ${hostname}`
+          })
+        }
       }
     }
 

@@ -145,7 +145,8 @@ export class ExtensionDescriptorResolver {
       packageRoot: extension.packageRoot,
       exactFiles: [...exactFiles].sort(),
       localResourceRoots: [...localResourceRoots].sort(),
-      hostIconFiles: [...hostIconFiles].sort()
+      hostIconFiles: [...hostIconFiles].sort(),
+      allowExternalWebview: extension.grantedPermissions.includes('webview.external')
     }
   }
 

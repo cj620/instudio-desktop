@@ -9,6 +9,7 @@ Kun runtime, renderer, Electron, or private HTTP/IPC modules.
 | [`workspace-dashboard`](./workspace-dashboard) | Editor dashboard, namespaced command, workspace reads, storage, and Host messages | Node + Webview |
 | [`agent-assistant`](./agent-assistant) | Extension-owned Agent run, replayable events, cancellation, and owned thread history | Node + Webview |
 | [`presentation-studio`](./presentation-studio) | Revisioned standalone HTML slides, visual editing, typed Agent operations, and safe projection | Node + Webview |
+| [`social-media-sidebar`](./social-media-sidebar) | Stateful desktop/mobile browser pages for Douyin, Bilibili, and Xiaohongshu | Browser/WebContentsView |
 | [`tool-provider`](./tool-provider) | Namespaced typed tool, progress, cancellation, and workspace access | Node/headless |
 | [`streaming-model-provider`](./streaming-model-provider) | API-key and OAuth account bindings, normalized model streaming, usage, cancellation, and no-fallback errors | Node/headless |
 | [`direct-dom`](./direct-dom) | High-risk isolated-world content script with bounded, failure-tolerant DOM changes | Node + content script |

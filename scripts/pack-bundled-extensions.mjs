@@ -33,6 +33,11 @@ export const BUNDLED_EXTENSION_DEFINITIONS = Object.freeze([
     id: 'kun-examples.presentation-studio',
     name: 'presentation-studio',
     root: join(root, 'examples', 'extensions', 'presentation-studio')
+  }),
+  Object.freeze({
+    id: 'kun-examples.social-media-sidebar',
+    name: 'social-media-sidebar',
+    root: join(root, 'examples', 'extensions', 'social-media-sidebar')
   })
 ])
 

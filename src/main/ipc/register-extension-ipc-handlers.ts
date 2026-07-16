@@ -43,6 +43,7 @@ import {
   extensionCreateApiKeyAccountRequestSchema,
   extensionDeleteAccountRequestSchema,
   extensionEnableRequestSchema,
+  extensionExternalBrowserControlSchema,
   extensionGuestCancelSchema,
   extensionGuestNotificationSchema,
   extensionGuestRequestSchema,
@@ -89,6 +90,7 @@ import type { ProtectedCredentialSurfaceController } from '../extensions/protect
 import type { ExtensionViewSessionRegistry } from '../extensions/extension-view-sessions'
 import type { ExtensionViewProtocolRegistry } from '../extensions/extension-view-protocol-registry'
 import type { ExtensionMediaProtocolRegistry } from '../extensions/extension-media-protocol'
+import type { ExtensionExternalBrowserManager } from '../extensions/extension-external-browser'
 import { isAllowedExtensionViewMethod } from '../extensions/extension-view-methods'
 import {
   assertProtectedViewBindingCurrent,
@@ -114,6 +116,7 @@ export type RegisterExtensionIpcHandlersOptions = {
   descriptors: ExtensionDescriptorResolver
   viewSessions: ExtensionViewSessionRegistry
   viewProtocols: ExtensionViewProtocolRegistry
+  externalBrowsers: ExtensionExternalBrowserManager
   mediaProtocols?: ExtensionMediaProtocolRegistry
   protectedActions: ProtectedExtensionActionService
   credentialSurface: ProtectedCredentialSurfaceController
@@ -928,6 +931,11 @@ function registerViewIpcHandlers(
       contributionId: request.contributionId,
       workspaceRoot: request.workspaceRoot,
       entryPath: view.entry,
+      externalWebviewHosts: view.grantedPermissions.includes('webview.external')
+        ? view.grantedPermissions
+          .filter((permission) => permission.startsWith('network:'))
+          .map((permission) => permission.slice('network:'.length))
+        : [],
       parentWebContentsId: event.sender.id
     })
     try {
@@ -966,6 +974,44 @@ function registerViewIpcHandlers(
     }
     options.viewSessions.dispose(request.sessionId)
     return (await runtimeDisposals.get(request.sessionId))?.ok ?? true
+  })
+
+  ipcMain.handle('extension:external-browser:control', async (event, payload: unknown) => {
+    assertTrustedWorkbenchSender(event, options.getMainWindow)
+    const request = parsePayload(
+      'extension:external-browser:control',
+      extensionExternalBrowserControlSchema,
+      payload
+    )
+    const record = requireWorkbenchOwnedSession(options, event.sender, request.sessionId)
+    const window = options.getMainWindow()
+    if (!window || window.isDestroyed()) throw new Error('Workbench window is unavailable.')
+    if (request.action === 'mount') {
+      return options.externalBrowsers.mount(
+        record,
+        window,
+        request.siteId,
+        request.url,
+        request.bounds,
+        request.presentation
+      )
+    }
+    if (request.action === 'activate') {
+      return options.externalBrowsers.activate(
+        record.sessionId,
+        request.siteId,
+        request.url,
+        request.presentation
+      )
+    }
+    if (request.action === 'bounds') {
+      return options.externalBrowsers.updateBounds(record.sessionId, request.bounds)
+    }
+    if (request.action === 'navigate') {
+      return options.externalBrowsers.navigate(record.sessionId, request.url)
+    }
+    if (request.action === 'state') return options.externalBrowsers.state(record.sessionId)
+    return options.externalBrowsers.command(record.sessionId, request.action)
   })
 
   ipcMain.handle('extension:view-session:message', async (event, payload: unknown) => {
@@ -1304,6 +1350,7 @@ function registerViewIpcHandlers(
       for (const controller of eventPumps.values()) controller.abort()
       eventPumps.clear()
       options.viewProtocols.disposeAll()
+      options.externalBrowsers.disposeAll()
       boundParentIds.clear()
       stopDisposeObserver()
     }
@@ -2039,6 +2086,9 @@ function permissionRiskLabels(permissions: readonly string[]): string[] {
   }
   if (permissions.some((permission) => permission === 'hostDom')) {
     labels.push('Direct DOM permission can read and alter visible workbench content and may imitate ordinary UI.')
+  }
+  if (permissions.some((permission) => permission === 'webview.external')) {
+    labels.push('External Webview permission can display approved remote websites inside an isolated browser session.')
   }
   if (permissions.some((permission) => permission === 'providers.register')) {
     labels.push('Provider permission can receive full model inputs when the user explicitly selects that provider.')

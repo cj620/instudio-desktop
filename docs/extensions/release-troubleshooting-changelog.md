@@ -196,7 +196,7 @@ Changelog 记录公开 Extension API，而不是 Kun 内部重构。每项包含
 下面的 public surface 快照由文档门禁从 package 入口、公开 export 和可达 `.d.ts` 计算。只有在本节已经解释兼容性影响后才更新快照；不能把更新 hash 当成 Changelog 条目。
 
 <!-- BEGIN GENERATED SDK PUBLIC SURFACE SNAPSHOTS -->
-<!-- sdk-surface-snapshot @kun/extension-api@1.2.0 sha256:cacbf1fe7ac21f7309848776f6c7ef70a8a09ffa6a592cd91eac21e13179c5bf -->
+<!-- sdk-surface-snapshot @kun/extension-api@1.2.0 sha256:0100f12f3cb0d9aadf5576839c83ced1eeaf53eb2436b826279a98cbfea6ec43 -->
 <!-- sdk-surface-snapshot @kun/extension-react@1.2.0 sha256:e2099a64dc22c05056dca0c599bafdfb22702b6d57e9b60edd2154b165323322 -->
 <!-- sdk-surface-snapshot @kun/extension-test@1.2.0 sha256:386c2beca46c240f957af2c92925c410a6d801a3bcc9f87697944d9f6d23337e -->
 <!-- END GENERATED SDK PUBLIC SURFACE SNAPSHOTS -->
@@ -208,6 +208,7 @@ list 和三平台 release gate 全部完成前，不得把扩展 Manifest 提前
 
 Added:
 
+- `webview.external` 高风险权限：允许经过工作区权限审核的 View 在无 Kun preload 的隔离子 Webview 中显示远程 HTTPS 网站；顶层导航还必须匹配显式 `network:<hostname>` 授权。
 - `MediaApi.createCacheTarget()`：由 Host 为 waveform、thumbnail、filmstrip、proxy、proof 与 preview 分配 disposable opaque 输出授权；扩展只选择有界格式和 purpose，不选择 cache path。
 - `MediaStartFfmpegJobRequest.scheduling` 与 `MediaJobScheduling`：提供 `background` / `user` / `interactive` / `export` priority、1–3 次尝试和有界 retry base delay。Host 保持并发、排队和 transient 分类的最终权威。
 - `application/x-otio+json` text output：允许最多 2 MiB 的有界 OTIO JSON 作为 text-only durable job 原子导出，并校验 root、结构界限与不透明 `kun-media://` target reference。
@@ -232,6 +233,7 @@ Fixed:
 
 Security:
 
+- 外部网站 guest 强制关闭 Node、Electron、Kun bridge、嵌套 Webview、设备权限和下载；初始导航、redirect 与 popup 使用授权 hostname allowlist，cookie 只进入 extension-ID 隔离的持久 partition。现有普通 Webview 继续拒绝全部外部导航。
 - 音频与视觉分析只接收 owner/workspace-bound opaque handle 和有界参数；固定 Host profile 执行真实本地解码，结果记录算法/模型 identity，不接受 path、URL、filter、command 或隐式 cloud fallback。
 - Bundled visual package 的 manifest、payload、签名和 install receipt 全部校验；当前 adapter 只提供可解释颜色/亮度/边缘 feature，无法支持任意语义时返回 `VISUAL_QUERY_UNSUPPORTED`，不生成伪 embedding。
 - Archive entry 拒绝绝对路径、反斜线、`.`/`..`、重复项、symlink escape 和 input/output alias；OTIO export 拒绝外部 `target_url`。所有输出留在 private staging，直到原子终态提交。
@@ -240,6 +242,7 @@ Security:
 
 Migration:
 
+- 既有 Webview 无需迁移。只有确实需要完整远程网站的扩展才新增 `webview.external` 和精确 network host，更新后会触发 renewed consent；普通 brokered fetch 继续使用 Network API。
 - 既有 v1.1 扩展无需 source migration；新增字段与方法是 additive。使用新方法前更新 SDK、声明精确 media/jobs/workspace permission，并进行 capability negotiation。
 - 使用新增方法的扩展应声明 `apiVersion: 1.2.0` 并随兼容 Kun Host 分发；Host 仍会协商 v1.1 与 v1.0 Manifest，不要求 source migration。
 

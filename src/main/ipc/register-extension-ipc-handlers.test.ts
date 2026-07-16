@@ -84,6 +84,26 @@ function fixture() {
     })),
     revokeLease: vi.fn(() => true)
   }
+  const externalBrowserState = {
+    sessionId: 'view_123456789012',
+    siteId: 'bilibili',
+    presentation: 'mobile' as const,
+    url: 'https://www.bilibili.com/',
+    title: 'Bilibili',
+    loading: false,
+    canGoBack: false,
+    canGoForward: false,
+    zoomFactor: 1
+  }
+  const externalBrowsers = {
+    mount: vi.fn(() => externalBrowserState),
+    activate: vi.fn(() => externalBrowserState),
+    updateBounds: vi.fn(() => externalBrowserState),
+    navigate: vi.fn(() => externalBrowserState),
+    command: vi.fn(() => externalBrowserState),
+    state: vi.fn(() => externalBrowserState),
+    disposeAll: vi.fn()
+  }
   const contentScripts = {
     sync: vi.fn(async (_sender: unknown, request: { protectedSurface?: string }) =>
       request.protectedSurface
@@ -145,6 +165,7 @@ function fixture() {
     descriptors: descriptors as never,
     viewSessions,
     viewProtocols: viewProtocols as never,
+    externalBrowsers: externalBrowsers as never,
     mediaProtocols: mediaProtocols as never,
     protectedActions: protectedActions as never,
     credentialSurface: credentialSurface as never,
@@ -158,6 +179,7 @@ function fixture() {
     viewSessions,
     viewProtocols,
     mediaProtocols,
+    externalBrowsers,
     contentScripts,
     descriptors,
     protectedActions,
@@ -1744,7 +1766,8 @@ describe('extension IPC security bridge', () => {
     const state = fixture()
     state.descriptors.resolveView.mockResolvedValue({
       extensionVersion: '1.0.0',
-      entry: 'dist/index.html'
+      entry: 'dist/index.html',
+      grantedPermissions: ['ui.views', 'webview']
     })
     let eventPoll = 0
     state.runtimeRequest.mockImplementation(async (path: string, method?: string) => {
@@ -1831,6 +1854,92 @@ describe('extension IPC security bridge', () => {
     state.registration.dispose()
   })
 
+  it('binds reviewed external Webview hosts into the Main-owned View Session', async () => {
+    const state = fixture()
+    state.descriptors.resolveView.mockResolvedValue({
+      extensionId: 'acme.social',
+      extensionVersion: '1.0.0',
+      packageRoot: '/extensions/acme.social/1.0.0',
+      entry: 'dist/index.html',
+      localResourceRoots: ['dist'],
+      grantedPermissions: [
+        'ui.views',
+        'webview',
+        'webview.external',
+        'network:bilibili.com',
+        'network:*.bilibili.com'
+      ]
+    })
+    state.runtimeRequest.mockImplementation(async (path: string, method?: string) => {
+      if (path === '/v1/extensions/view-sessions' && method === 'POST') {
+        return {
+          ok: true,
+          status: 201,
+          body: JSON.stringify({
+            sessionId: 'view_12345678-1234-1234-1234-123456789abc',
+            nonce: 'n'.repeat(43),
+            extensionId: 'acme.social',
+            extensionVersion: '1.0.0',
+            contributionId: 'extension:acme.social/social'
+          })
+        }
+      }
+      return { ok: false, status: 404, body: '{}' }
+    })
+
+    const created = await electronMock.handlers.get('extension:view-session:create')!(
+      state.trustedEvent,
+      { contributionId: 'extension:acme.social/social' }
+    ) as { sessionId: string }
+
+    expect(state.viewSessions.get(created.sessionId)?.externalWebviewHosts).toEqual([
+      '*.bilibili.com',
+      'bilibili.com'
+    ])
+    state.registration.dispose()
+  })
+
+  it('mounts the native external browser only for a workbench-owned reviewed Session', async () => {
+    const state = fixture()
+    const record = state.viewSessions.create({
+      sessionId: 'view_12345678-1234-1234-1234-123456789abc',
+      extensionId: 'acme.social',
+      extensionVersion: '1.0.0',
+      contributionId: 'extension:acme.social/social',
+      entryPath: 'dist/index.html',
+      externalWebviewHosts: ['bilibili.com', '*.bilibili.com'],
+      parentWebContentsId: state.mainContents.id
+    })
+    const bounds = { x: 700, y: 120, width: 500, height: 680, visible: true }
+
+    await electronMock.handlers.get('extension:external-browser:control')!(state.trustedEvent, {
+      sessionId: record.sessionId,
+      action: 'mount',
+      siteId: 'bilibili',
+      url: 'https://www.bilibili.com/',
+      presentation: 'mobile',
+      bounds
+    })
+
+    expect(state.externalBrowsers.mount).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: record.sessionId }),
+      expect.objectContaining({ webContents: state.mainContents }),
+      'bilibili',
+      'https://www.bilibili.com/',
+      bounds,
+      'mobile'
+    )
+    await expect(electronMock.handlers.get('extension:external-browser:control')!(
+      state.untrustedEvent,
+      {
+        sessionId: record.sessionId,
+        action: 'navigate',
+        url: 'https://www.bilibili.com/video/BV1'
+      }
+    )).rejects.toThrow(/trusted workbench/)
+    state.registration.dispose()
+  })
+
   it('rolls back the runtime View Session when isolated protocol preparation fails', async () => {
     const state = fixture()
     state.descriptors.resolveView.mockResolvedValue({
@@ -1838,7 +1947,8 @@ describe('extension IPC security bridge', () => {
       extensionVersion: '1.0.0',
       packageRoot: '/extensions/acme.example/1.0.0',
       entry: 'dist/index.html',
-      localResourceRoots: ['dist/assets']
+      localResourceRoots: ['dist/assets'],
+      grantedPermissions: ['ui.views', 'webview']
     })
     state.viewProtocols.prepare.mockImplementationOnce(() => {
       throw new Error('isolated protocol unavailable')
@@ -1879,7 +1989,8 @@ describe('extension IPC security bridge', () => {
       extensionVersion: '1.0.0',
       packageRoot: '/extensions/acme.example/1.0.0',
       entry: 'dist/index.html',
-      localResourceRoots: ['dist/assets']
+      localResourceRoots: ['dist/assets'],
+      grantedPermissions: ['ui.views', 'webview']
     })
     state.runtimeRequest.mockImplementation(async (path: string, method?: string) => {
       if (path === '/v1/extensions/acme.example/retry' && method === 'POST') {

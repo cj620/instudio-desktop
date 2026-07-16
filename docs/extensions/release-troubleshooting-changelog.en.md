@@ -196,7 +196,7 @@ The Changelog records public Extension API, not Kun internal refactors. Each ent
 The public surface snapshots below are computed from package entries, public exports, and reachable `.d.ts` declarations. Update them only after this section explains the compatibility impact; changing a hash is not itself a Changelog entry.
 
 <!-- BEGIN GENERATED SDK PUBLIC SURFACE SNAPSHOTS -->
-<!-- sdk-surface-snapshot @kun/extension-api@1.2.0 sha256:cacbf1fe7ac21f7309848776f6c7ef70a8a09ffa6a592cd91eac21e13179c5bf -->
+<!-- sdk-surface-snapshot @kun/extension-api@1.2.0 sha256:0100f12f3cb0d9aadf5576839c83ced1eeaf53eb2436b826279a98cbfea6ec43 -->
 <!-- sdk-surface-snapshot @kun/extension-react@1.2.0 sha256:e2099a64dc22c05056dca0c599bafdfb22702b6d57e9b60edd2154b165323322 -->
 <!-- sdk-surface-snapshot @kun/extension-test@1.2.0 sha256:386c2beca46c240f957af2c92925c410a6d801a3bcc9f87697944d9f6d23337e -->
 <!-- END GENERATED SDK PUBLIC SURFACE SNAPSHOTS -->
@@ -209,6 +209,7 @@ supported-version list, and three-platform release gates are complete.
 
 Added:
 
+- The high-risk `webview.external` permission lets a workspace-reviewed View display a remote HTTPS site in an isolated child Webview without the Kun preload; top-level navigation must also match explicit `network:<hostname>` grants.
 - `MediaApi.createCacheTarget()` allocates a Host-owned disposable opaque output grant for waveforms, thumbnails, filmstrips, proxies, proofs, and previews. The extension chooses a bounded format and purpose, never a cache path.
 - `MediaStartFfmpegJobRequest.scheduling` and `MediaJobScheduling` provide `background` / `user` / `interactive` / `export` priority, 1–3 attempts, and a bounded retry base delay. The Host remains authoritative for concurrency, queueing, and transient classification.
 - `application/x-otio+json` text output allows up to 2 MiB of bounded OTIO JSON to export atomically as a text-only durable job, with root, structural-bound, and opaque `kun-media://` target-reference validation.
@@ -233,6 +234,7 @@ Fixed:
 
 Security:
 
+- External-site guests forcibly disable Node, Electron, the Kun bridge, nested Webviews, device permissions, and downloads. Initial navigation, redirects, and popups use the granted-host allowlist, and cookies stay in an extension-ID-isolated persistent partition. Existing ordinary Webviews continue to deny all external navigation.
 - Audio and visual analysis accept only owner/workspace-bound opaque handles and bounded parameters. Fixed Host profiles decode real media locally and record algorithm/model identity; they accept no path, URL, filter, command, or implicit cloud fallback.
 - The bundled visual package verifies its manifest, payload, signature, and install receipt. The current adapter exposes only interpretable color/brightness/edge features and returns `VISUAL_QUERY_UNSUPPORTED` when it cannot support arbitrary semantics; it does not fabricate an embedding.
 - Archive entries reject absolute paths, backslashes, `.`/`..`, duplicates, symlink escape, and input/output aliasing. OTIO export rejects external `target_url` values. Output stays in private staging until atomic terminal commit.
@@ -241,6 +243,7 @@ Security:
 
 Migration:
 
+- Existing Webviews need no migration. Only extensions that genuinely require complete remote sites add `webview.external` plus exact network hosts, which triggers renewed consent; ordinary brokered fetch continues to use the Network API.
 - Existing v1.1 extensions need no source migration; the new fields and methods are additive. Before using them, update the SDK, declare exact media/jobs/workspace permissions, and negotiate capabilities.
 - Extensions that use the new methods declare `apiVersion: 1.2.0` and ship with a compatible Kun Host. The Host still negotiates v1.1 and v1.0 manifests without a source migration.
 

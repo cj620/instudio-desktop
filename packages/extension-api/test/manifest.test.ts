@@ -164,6 +164,72 @@ describe('ExtensionManifestSchema', () => {
     ).toBe(false)
   })
 
+  it('accepts explicit external Webview authority with scoped network hosts', () => {
+    expect(ExtensionManifestSchema.safeParse({
+      ...manifest,
+      permissions: [
+        ...manifest.permissions,
+        'webview.external',
+        'network:bilibili.com',
+        'network:*.bilibili.com'
+      ]
+    }).success).toBe(true)
+    expect(ExtensionManifestSchema.safeParse({
+      ...manifest,
+      permissions: ['ui.views', 'webview', 'webview.external', 'tools.register']
+    }).success).toBe(false)
+
+    const externalViewManifest = {
+      ...manifest,
+      contributes: {
+        ...manifest.contributes,
+        'views.rightSidebar': [{
+          id: 'issues',
+          title: 'Social',
+          entry: 'dist/webview/index.html',
+          externalBrowser: {
+            sites: [{
+              id: 'bilibili',
+              title: 'Bilibili',
+              badge: 'B',
+              accent: '#00aeec',
+              url: 'https://www.bilibili.com/'
+            }]
+          }
+        }]
+      },
+      permissions: [
+        ...manifest.permissions,
+        'webview.external',
+        'network:bilibili.com',
+        'network:*.bilibili.com'
+      ]
+    }
+    const parsedExternalView = ExtensionManifestSchema.safeParse(externalViewManifest)
+    expect(parsedExternalView.success).toBe(true)
+    if (parsedExternalView.success) {
+      expect(
+        parsedExternalView.data.contributes['views.rightSidebar'][0]?.externalBrowser?.presentation
+      ).toBe('desktop')
+    }
+    expect(ExtensionManifestSchema.safeParse({
+      ...externalViewManifest,
+      permissions: manifest.permissions
+    }).success).toBe(false)
+    expect(ExtensionManifestSchema.safeParse({
+      ...externalViewManifest,
+      contributes: {
+        ...externalViewManifest.contributes,
+        'views.rightSidebar': [{
+          ...externalViewManifest.contributes['views.rightSidebar'][0],
+          externalBrowser: {
+            sites: [{ id: 'outside', title: 'Outside', url: 'https://example.com/' }]
+          }
+        }]
+      }
+    }).success).toBe(false)
+  })
+
   it('rejects Direct DOM matching for the protected Settings surface', () => {
     expect(ExtensionManifestSchema.safeParse({
       ...manifest,

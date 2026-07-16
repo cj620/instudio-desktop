@@ -184,6 +184,8 @@ v1 supports:
 
 `views.rightSidebar` is the canonical discoverable UI for new extensions. Its packaged icon and localized title appear in Code mode's vertical right rail and open an independent tab beside the main conversation. Other `views.*` locations remain Extension API v1 parse- and command-routing compatible, but the Host does not generate an aggregate extension picker for them.
 
+A View that needs fixed remote websites may declare `externalBrowser: { presentation, sites }`. `presentation` is `desktop` or `mobile`; each site accepts only `id`, `title`, optional badge/accent, and a credential-free HTTPS `url`. This requires `webview.external`, and every site hostname must match an explicit `network:` grant. A Main-owned browser surface hosts the remote page without loading the extension `entry` or bridge into it.
+
 ### Implied contribution permissions
 
 The validator derives and enforces these minimum permissions from entries/contributions. A missing permission makes the Manifest invalid:
@@ -194,6 +196,7 @@ The validator derives and enforces these minimum permissions from entries/contri
 | `commands` | `commands.register` |
 | `views.containers` | `ui.views` |
 | Any `views.*` View | `ui.views`, `webview` |
+| View with `externalBrowser` | `webview.external` and `network:<hostname>` for every site |
 | `message.resultPreviews` | `ui.views`, `webview` |
 | `actions.*`, `settings`, `contextMenus` | `ui.actions` |
 | `notifications` | `ui.notifications` |
@@ -287,6 +290,7 @@ v1 permissions are exact strings:
 | `ui.actions` | Provide host-rendered actions, menus, and settings controls |
 | `ui.notifications` | Request host notifications |
 | `webview` | Create declared complex Webview UI |
+| `webview.external` | Display remote HTTPS sites approved by `network:*` inside an isolated child Webview (high risk) |
 | `hostDom` | Inject declared Direct DOM content scripts (high risk) |
 | `agent.run` | Create and control extension-owned Agent Runs |
 | `agent.threads.readOwn` | Query projections of threads/runs owned by this extension |
@@ -302,7 +306,7 @@ v1 permissions are exact strings:
 | `workspace.read` | Read an allowed workspace through the broker |
 | `workspace.write` | Write an allowed workspace through the broker, still subject to policy/approval |
 
-Declare the minimum set. A package version that adds a permission does not inherit old consent; the user must confirm again in a protected window. Permissions never grant Node or secrets to browser/content-script code and cannot bypass the Kun ApprovalGate. See [Security and resources](./security-and-resources.en.md).
+Declare the minimum set. A package version that adds a permission does not inherit old consent; the user must confirm again in a protected window. `webview.external` also requires explicit `network:<hostname>` grants; in this mode those grants constrain child-Webview top-level navigation, and the remote page never receives the Kun preload, Node, or Electron. Permissions never grant Node or secrets to ordinary browser/content-script code and cannot bypass the Kun ApprovalGate. See [Security and resources](./security-and-resources.en.md).
 
 ## Direct DOM declaration
 

@@ -151,6 +151,60 @@ export type ExtensionViewSessionRequest = {
   sessionId: string
 }
 
+export type ExtensionExternalBrowserBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+  visible: boolean
+}
+
+export type ExtensionExternalBrowserPresentation = 'desktop' | 'mobile'
+
+export type ExtensionExternalBrowserControlRequest =
+  | {
+      sessionId: string
+      action: 'mount'
+      siteId: string
+      url: string
+      presentation: ExtensionExternalBrowserPresentation
+      bounds: ExtensionExternalBrowserBounds
+    }
+  | {
+      sessionId: string
+      action: 'activate'
+      siteId: string
+      url: string
+      presentation: ExtensionExternalBrowserPresentation
+    }
+  | {
+      sessionId: string
+      action: 'bounds'
+      bounds: ExtensionExternalBrowserBounds
+    }
+  | {
+      sessionId: string
+      action: 'navigate'
+      url: string
+    }
+  | {
+      sessionId: string
+      action: 'back' | 'forward' | 'reload' | 'zoomIn' | 'zoomOut' | 'zoomReset' | 'state'
+    }
+
+export type ExtensionExternalBrowserState = {
+  sessionId: string
+  siteId: string
+  presentation: ExtensionExternalBrowserPresentation
+  url: string
+  title: string
+  loading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+  zoomFactor: number
+  error?: string
+}
+
 export type ExtensionViewMessageRequest = ExtensionViewSessionRequest & {
   channel: string
   payload: unknown
@@ -397,6 +451,12 @@ export type ExtensionIpcApi = {
   extensionDisposeViewSession: (
     request: ExtensionViewSessionRequest | string
   ) => Promise<boolean>
+  extensionExternalBrowserControl: (
+    request: ExtensionExternalBrowserControlRequest
+  ) => Promise<ExtensionExternalBrowserState>
+  onExtensionExternalBrowserState: (
+    handler: (state: ExtensionExternalBrowserState) => void
+  ) => () => void
   extensionPostViewMessage: (
     request: ExtensionViewMessageRequest
   ) => Promise<ExtensionRuntimeRequestResult>

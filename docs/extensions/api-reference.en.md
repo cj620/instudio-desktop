@@ -90,7 +90,7 @@ The following region is calculated by `node scripts/generate-extension-api-refer
 <!-- BEGIN GENERATED SDK EXPORTS -->
 | SDK package | Version | Public entry points | Public exports | Public surface SHA-256 |
 | --- | --- | --- | --- | --- |
-| `@kun/extension-api` | `1.2.0` | `.`<br>`./manifest.schema.json` | 490 | `cacbf1fe7ac21f7309848776f6c7ef70a8a09ffa6a592cd91eac21e13179c5bf` |
+| `@kun/extension-api` | `1.2.0` | `.`<br>`./manifest.schema.json` | 490 | `0100f12f3cb0d9aadf5576839c83ced1eeaf53eb2436b826279a98cbfea6ec43` |
 | `@kun/extension-react` | `1.2.0` | `.` | 22 | `e2099a64dc22c05056dca0c599bafdfb22702b6d57e9b60edd2154b165323322` |
 | `@kun/extension-test` | `1.2.0` | `.` | 16 | `386c2beca46c240f957af2c92925c410a6d801a3bcc9f87697944d9f6d23337e` |
 

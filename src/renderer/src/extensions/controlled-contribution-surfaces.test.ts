@@ -23,6 +23,10 @@ import {
   extensionViewSessionContractKey,
   validateExtensionViewSession
 } from './ExtensionWebview'
+import {
+  requiresWideAuthenticationViewport,
+  siteForUrl
+} from './ExtensionExternalBrowser'
 import { extensionWorkbenchClient } from './extension-workbench-client'
 
 function registryWithContributions(): ContributionRegistry {
@@ -76,6 +80,21 @@ function registryWithContributions(): ContributionRegistry {
 }
 
 describe('controlled workbench contribution rendering', () => {
+  it('widens mobile authentication routes without treating ordinary content as login UI', () => {
+    expect(requiresWideAuthenticationViewport(
+      'douyin',
+      'https://www.douyin.com/user/self'
+    )).toBe(true)
+    expect(requiresWideAuthenticationViewport(
+      'bilibili',
+      'https://passport.bilibili.com/login'
+    )).toBe(true)
+    expect(requiresWideAuthenticationViewport(
+      'xiaohongshu',
+      'https://www.xiaohongshu.com/explore'
+    )).toBe(false)
+  })
+
   it('rejects synthetic Direct DOM notification activation', () => {
     const onRespond = vi.fn()
     let renderer!: ReturnType<typeof createRenderer>
@@ -287,6 +306,60 @@ describe('controlled workbench contribution rendering', () => {
     expect(validateExtensionViewSession(validSession, contribution)).toBeNull()
     expect(validateExtensionViewSession({ ...validSession, partition: 'persist:shared' }, contribution)).toContain('non-persistent')
     expect(validateExtensionViewSession({ ...validSession, src: 'https://evil.example/' }, contribution)).toContain('origin mismatch')
+  })
+
+  it('routes declared external browser Views through Host chrome without nesting a Webview', () => {
+    const registry = new ContributionRegistry()
+    registry.replaceExtensions(ExtensionWorkbenchSnapshotSchema.parse({
+      schemaVersion: 1,
+      revision: 1,
+      extensions: [{
+        id: 'acme.social',
+        version: '1.0.0',
+        workspaceTrusted: true,
+        grantedPermissions: [
+          'ui.views',
+          'webview',
+          'webview.external',
+          'network:bilibili.com',
+          'network:*.bilibili.com'
+        ],
+        contributes: ExtensionContributionsSchema.parse({
+          'views.rightSidebar': [{
+            id: 'social',
+            title: 'Social',
+            entry: 'dist/index.html',
+            externalBrowser: {
+              presentation: 'mobile',
+              sites: [{
+                id: 'bilibili',
+                title: '哔哩哔哩',
+                badge: 'B',
+                accent: '#00aeec',
+                url: 'https://www.bilibili.com/'
+              }]
+            }
+          }]
+        })
+      }]
+    }))
+    const contribution = registry.list('views.rightSidebar')
+      .find((item) => item.id === 'extension:acme.social/social')!
+    const html = renderToStaticMarkup(createElement(ExtensionViewOutlet, { contribution }))
+
+    expect(html).toContain('data-external-browser-view="true"')
+    expect(html).toContain('data-browser-presentation="mobile"')
+    expect(html).toContain('data-mobile-browser-frame="true"')
+    expect(html).toContain('网页版')
+    expect(html).toContain('手机版')
+    expect(html).toContain('全屏浏览')
+    expect(html).toContain('100%')
+    expect(html).toContain('哔哩哔哩')
+    expect(html).not.toContain('<webview')
+    expect(siteForUrl(
+      contribution.payload.externalBrowser!.sites,
+      'https://space.bilibili.com/123'
+    )?.id).toBe('bilibili')
   })
 
   it('keeps an opening View session across equivalent contribution snapshot replacements', async () => {

@@ -686,7 +686,8 @@ check(
 )
 for (const id of [
   'kun-examples.kun-video-editor',
-  'kun-examples.presentation-studio'
+  'kun-examples.presentation-studio',
+  'kun-examples.social-media-sidebar'
 ]) {
   check(
     afterPack.REQUIRED_BUNDLED_EXTENSION_IDS.includes(id),
@@ -1029,6 +1030,7 @@ for (const marker of [
   'BUNDLED_EXTENSION_CATALOG_FILE',
   'kun-examples.kun-video-editor',
   'kun-examples.presentation-studio',
+  'kun-examples.social-media-sidebar',
   'bundledExtensionCatalog',
   'removeStaleBundledArchives'
 ]) {

@@ -6,6 +6,7 @@ export const STATIC_PERMISSIONS = [
   'ui.actions',
   'ui.notifications',
   'webview',
+  'webview.external',
   'hostDom',
   'agent.run',
   'agent.threads.readOwn',

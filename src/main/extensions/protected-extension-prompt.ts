@@ -236,6 +236,7 @@ function localizePermissionChangeReviewDetail(detail: string): string {
     .replace('Media export permission can write to user-approved output targets.', '媒体导出权限可写入用户批准的输出位置。')
     .replace('Agent and tool permissions can start private Agent runs and expose declared tools to Kun.', 'Agent 和工具权限可启动私有 Agent 运行，并向 Kun 提供声明的工具。')
     .replace('Direct DOM permission can read and alter visible workbench content and may imitate ordinary UI.', 'Direct DOM 权限可读取和修改可见工作台内容，并可能仿冒普通界面。')
+    .replace('External Webview permission can display approved remote websites inside an isolated browser session.', '外部 Webview 权限可在隔离的浏览器会话中显示已批准的远程网站。')
     .replace('Provider permission can receive full model inputs when the user explicitly selects that provider.', '用户明确选择该提供商后，提供商权限可接收完整的模型输入。')
     .replace('Secret-read permission can reveal a selected raw account secret to this extension\'s Node host after a separate allow-once decision.', '单独批准一次后，密钥读取权限可向此扩展的 Node Host 显示所选账户的原始密钥。')
     .replace('Network permission can send brokered data to the declared destination hosts.', '网络权限可将 Broker 数据发送到声明的目标主机。')

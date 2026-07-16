@@ -15,6 +15,7 @@ import {
   type RegisteredContribution
 } from './contribution-registry'
 import { ExtensionWebview } from './ExtensionWebview'
+import { ExtensionExternalBrowser } from './ExtensionExternalBrowser'
 import { boundedPlainText, isSecretLikeSettingKey } from './safe-text'
 
 export { isSecretLikeSettingKey } from './safe-text'
@@ -590,6 +591,19 @@ export function ExtensionViewOutlet({
 }): ReactElement {
   if (contribution.owner.kind !== 'extension') {
     return <div role="alert">Built-in Views are rendered by their owning Kun component.</div>
+  }
+  if (
+    contribution.point !== 'message.resultPreviews' &&
+    contribution.payload.externalBrowser &&
+    contribution.owner.grantedPermissions.includes('webview.external')
+  ) {
+    return (
+      <ExtensionExternalBrowser
+        contribution={contribution}
+        workspaceRoot={workspaceRoot}
+        onClose={onClose}
+      />
+    )
   }
   return (
     <ExtensionWebview

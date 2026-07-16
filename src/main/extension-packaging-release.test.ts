@@ -39,6 +39,10 @@ function writeBundledExtensionResources(context: ReturnType<typeof packContext>)
     {
       id: 'kun-examples.presentation-studio',
       archive: 'presentation-studio-0.1.0.kunx'
+    },
+    {
+      id: 'kun-examples.social-media-sidebar',
+      archive: 'social-media-sidebar-0.1.3.kunx'
     }
   ].map((entry) => {
     const bytes = Buffer.from(`deterministic bundled extension archive: ${entry.id}`)
@@ -102,6 +106,9 @@ describe('Extension Platform packaged release resources', () => {
     )
     expect(afterPack.REQUIRED_BUNDLED_EXTENSION_IDS).toContain(
       'kun-examples.presentation-studio'
+    )
+    expect(afterPack.REQUIRED_BUNDLED_EXTENSION_IDS).toContain(
+      'kun-examples.social-media-sidebar'
     )
   })
 
