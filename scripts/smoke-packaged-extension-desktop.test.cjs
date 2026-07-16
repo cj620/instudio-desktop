@@ -652,6 +652,8 @@ test('every automated and local release path gates uploads behind packaged Exten
   const daily = parseYaml(readFileSync(join(root, '.github', 'workflows', 'daily-dev-prerelease.yml'), 'utf8'))
   const pr = parseYaml(readFileSync(join(root, '.github', 'workflows', 'pr-checks.yml'), 'utf8'))
   const desktopCommand = 'npm run smoke:packaged-extension-desktop'
+  const stableMacDesktopCommand =
+    'npm run smoke:packaged-extension-desktop -- --resources dist/mac-arm64/小元.app/Contents/Resources'
   const appImageDesktopCommand = 'npm run smoke:packaged-extension-appimage'
   const nativeEvidenceCommand = 'npm run evidence:extension-native'
 
@@ -661,7 +663,7 @@ test('every automated and local release path gates uploads behind packaged Exten
   assertOrderedCommands(release.jobs['build-macos'], [
     'npm run smoke:packaged-extensions -- --resources dist/mac/小元.app/Contents/Resources',
     'npm run smoke:packaged-extensions -- --resources dist/mac-arm64/小元.app/Contents/Resources',
-    desktopCommand,
+    stableMacDesktopCommand,
     nativeEvidenceCommand
   ])
   assertStepAfter(release.jobs['build-macos'], 'Upload macOS artifacts', nativeEvidenceCommand)

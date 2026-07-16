@@ -834,6 +834,9 @@ const stableReleaseDependencies = isXiaoyuanStableRelease
   : ['prepare', 'build-macos', 'build-windows', 'build-linux']
 const stableMacBuildCommand = isXiaoyuanStableRelease ? 'npm run dist:mac' : 'npm run dist:mac:signed'
 const stableMacProductName = isXiaoyuanStableRelease ? '小元' : 'Kun'
+const stableMacDesktopCommand = isXiaoyuanStableRelease
+  ? 'npm run smoke:packaged-extension-desktop -- --resources dist/mac-arm64/小元.app/Contents/Resources'
+  : 'npm run smoke:packaged-extension-desktop'
 requirePublishDependencies(releaseWorkflowDocument, 'Stable release workflow', stableReleaseDependencies)
 const stableReleaseMarkers = [
   'runs-on: macos-latest',
@@ -899,7 +902,7 @@ requireOrderedCommands(releaseMacJob, 'build-macos', [
   stableMacBuildCommand,
   `npm run smoke:packaged-extensions -- --resources dist/mac/${stableMacProductName}.app/Contents/Resources`,
   `npm run smoke:packaged-extensions -- --resources dist/mac-arm64/${stableMacProductName}.app/Contents/Resources`,
-  'npm run smoke:packaged-extension-desktop',
+  stableMacDesktopCommand,
   nativeEvidenceCommand
 ])
 requireUnconditionalStepAfter(
