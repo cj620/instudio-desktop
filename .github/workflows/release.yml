@@ -27,6 +27,7 @@ jobs:
   build-macos:
     name: Build macOS (unsigned)
     runs-on: macos-latest
+    timeout-minutes: 90
     env:
       # 不做签名:跳过 keychain 身份自动发现,避免误用 runner 上的证书
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -46,8 +47,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check Extension public release gate
+        run: npm run check:extension-release-gate
+
       - name: Build unsigned macOS packages (dmg + zip, arm64 + x64)
         run: npm run dist:mac
+
+      - name: Smoke packaged Extension Node runtime (macOS x64)
+        run: npm run smoke:packaged-extensions -- --resources dist/mac/Xiaoyuan.app/Contents/Resources
+
+      - name: Smoke packaged Extension Node runtime (macOS arm64)
+        run: npm run smoke:packaged-extensions -- --resources dist/mac-arm64/Xiaoyuan.app/Contents/Resources
+
+      - name: Smoke packaged Extension desktop Chromium (host-native macOS)
+        run: npm run smoke:packaged-extension-desktop
+
+      - name: Record commit-bound macOS artifact evidence
+        run: npm run evidence:extension-native
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -60,10 +76,12 @@ jobs:
             dist/Xiaoyuan-*-mac-*.zip
             dist/Xiaoyuan-*-mac-*.blockmap
             dist/latest-mac.yml
+            dist/extension-native-evidence-darwin.json
 
   build-windows:
     name: Build Windows
     runs-on: windows-latest
+    timeout-minutes: 90
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
@@ -82,8 +100,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check Extension public release gate
+        run: npm run check:extension-release-gate
+
       - name: Build Windows installer (NSIS x64)
         run: npm run dist:win
+
+      - name: Smoke packaged Extension Node runtime
+        run: npm run smoke:packaged-extensions -- --resources dist/win-unpacked/resources
+
+      - name: Smoke packaged Extension desktop Chromium
+        run: npm run smoke:packaged-extension-desktop
+
+      - name: Record commit-bound Windows artifact evidence
+        run: npm run evidence:extension-native
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -95,6 +125,7 @@ jobs:
             dist/Xiaoyuan-*-win-x64.exe
             dist/Xiaoyuan-*-win-x64.exe.blockmap
             dist/latest.yml
+            dist/extension-native-evidence-win32.json
 
   publish:
     name: Publish GitHub Release
@@ -129,6 +160,8 @@ jobs:
             "Xiaoyuan-*-win-x64.exe"
             "latest-mac.yml"
             "latest.yml"
+            "extension-native-evidence-darwin.json"
+            "extension-native-evidence-win32.json"
           )
           for pattern in "${required[@]}"; do
             if ! compgen -G "release-artifacts/${pattern}" > /dev/null; then
