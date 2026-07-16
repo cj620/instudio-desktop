@@ -28,7 +28,7 @@ const {
   writeFile
 } = require('node:fs/promises')
 const { tmpdir } = require('node:os')
-const { dirname, isAbsolute, join, relative, resolve, sep } = require('node:path')
+const { basename, dirname, isAbsolute, join, relative, resolve, sep } = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { KUN_RUNTIME_REQUIRED_PATHS } = require('./after-pack.cjs')
 
@@ -189,7 +189,8 @@ function resolvePackagedRuntimeExecutable(resourcesDir, explicit) {
         : undefined
     if (packagedArch && packagedArch !== process.arch) return undefined
     if (!normalized.endsWith('.app/Contents/Resources')) return undefined
-    const candidate = join(dirname(resourcesDir), 'MacOS', 'Kun')
+    const appBundle = dirname(dirname(resourcesDir))
+    const candidate = join(dirname(resourcesDir), 'MacOS', basename(appBundle, '.app'))
     assertExists(candidate, 'runtime executable')
     return candidate
   }
