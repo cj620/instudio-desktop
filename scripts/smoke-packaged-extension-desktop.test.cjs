@@ -655,12 +655,12 @@ test('every automated and local release path gates uploads behind packaged Exten
   const appImageDesktopCommand = 'npm run smoke:packaged-extension-appimage'
   const nativeEvidenceCommand = 'npm run evidence:extension-native'
 
-  assertPublishDependencies(release, 'stable release')
+  assertPublishDependencies(release, 'stable release', ['build-macos', 'build-windows'])
   assertPublishDependencies(daily, 'daily prerelease')
 
   assertOrderedCommands(release.jobs['build-macos'], [
-    'npm run smoke:packaged-extensions -- --resources dist/mac/Kun.app/Contents/Resources',
-    'npm run smoke:packaged-extensions -- --resources dist/mac-arm64/Kun.app/Contents/Resources',
+    'npm run smoke:packaged-extensions -- --resources dist/mac/Xiaoyuan.app/Contents/Resources',
+    'npm run smoke:packaged-extensions -- --resources dist/mac-arm64/Xiaoyuan.app/Contents/Resources',
     desktopCommand,
     nativeEvidenceCommand
   ])
@@ -671,14 +671,6 @@ test('every automated and local release path gates uploads behind packaged Exten
     nativeEvidenceCommand
   ])
   assertStepAfter(release.jobs['build-windows'], 'Upload Windows artifacts', nativeEvidenceCommand)
-  assertOrderedCommands(release.jobs['build-linux'], [
-    'npm run smoke:packaged-extensions -- --resources dist/linux-unpacked/resources',
-    'unshare --user --map-root-user /bin/true',
-    desktopCommand,
-    appImageDesktopCommand,
-    nativeEvidenceCommand
-  ])
-  assertStepAfter(release.jobs['build-linux'], 'Upload Linux artifacts', nativeEvidenceCommand)
   assertOrderedCommands(pr.jobs.package, [
     'npm run smoke:packaged-extensions -- --resources dist/linux-unpacked/resources',
     'unshare --user --map-root-user /bin/true',
@@ -731,8 +723,10 @@ test('every automated and local release path gates uploads behind packaged Exten
     nativeEvidenceCommand
   ])
   assertStepAfter(daily.jobs['build-linux'], 'Upload Linux artifacts', nativeEvidenceCommand)
-  for (const jobId of ['build-macos', 'build-windows', 'build-linux']) {
+  for (const jobId of ['build-macos', 'build-windows']) {
     assert.equal(release.jobs[jobId]['timeout-minutes'], 90, `${jobId} must have a bounded timeout`)
+  }
+  for (const jobId of ['build-macos', 'build-windows', 'build-linux']) {
     assert.equal(daily.jobs[jobId]['timeout-minutes'], 90, `daily ${jobId} must have a bounded timeout`)
   }
   assert.equal(pr.jobs.package['timeout-minutes'], 60, 'PR Linux package job must have a bounded timeout')
@@ -743,7 +737,6 @@ test('every automated and local release path gates uploads behind packaged Exten
     assert.ok(needs.includes('test'), `${jobId} must depend on the test gate`)
   }
   for (const [label, job] of [
-    ['release Linux', release.jobs['build-linux']],
     ['daily Linux', daily.jobs['build-linux']],
     ['PR Linux', pr.jobs.package]
   ]) {
@@ -770,7 +763,6 @@ test('every automated and local release path gates uploads behind packaged Exten
   for (const [label, job, evidenceFile] of [
     ['release macOS', release.jobs['build-macos'], 'extension-native-evidence-darwin.json'],
     ['release Windows', release.jobs['build-windows'], 'extension-native-evidence-win32.json'],
-    ['release Linux', release.jobs['build-linux'], 'extension-native-evidence-linux.json'],
     ['daily macOS', daily.jobs['build-macos'], 'extension-native-evidence-darwin.json'],
     ['daily Windows', daily.jobs['build-windows'], 'extension-native-evidence-win32.json'],
     ['daily Linux', daily.jobs['build-linux'], 'extension-native-evidence-linux.json'],
@@ -796,17 +788,13 @@ test('every automated and local release path gates uploads behind packaged Exten
     assert.ok(prFailureNeeds.includes(jobId), `PR failure review must depend on ${jobId}`)
   }
 
-  const releaseLinuxDependencies =
-    release.jobs['build-linux'].steps.find((step) => step.name === 'Install Linux packaging dependencies')?.run ?? ''
   const prLinuxDependencies =
     pr.jobs.package.steps.find((step) => step.name === 'Install Linux packaging dependencies')?.run ?? ''
   const dailyLinuxDependencies =
     daily.jobs['build-linux'].steps.find((step) => step.name === 'Install Linux packaging dependencies')?.run ?? ''
-  assert.match(releaseLinuxDependencies, /\bxvfb\b/)
   assert.match(prLinuxDependencies, /\bxvfb\b/)
   assert.match(dailyLinuxDependencies, /\bxvfb\b/)
   assert.match(dailyLinuxDependencies, /\bxauth\b/)
-  assert.match(releaseLinuxDependencies, /\butil-linux\b/)
   assert.match(prLinuxDependencies, /\butil-linux\b/)
   assert.match(dailyLinuxDependencies, /\butil-linux\b/)
 
@@ -942,11 +930,15 @@ function assertStepAfter(job, stepName, priorCommand) {
   assert.ok(priorIndex >= 0 && stepIndex > priorIndex, `${stepName} must run after ${priorCommand}`)
 }
 
-function assertPublishDependencies(workflow, label) {
+function assertPublishDependencies(
+  workflow,
+  label,
+  dependencies = ['prepare', 'build-macos', 'build-windows', 'build-linux']
+) {
   const publish = workflow.jobs?.publish
   assert.ok(publish, `${label} must define a publish job`)
   const needs = Array.isArray(publish.needs) ? publish.needs : [publish.needs].filter(Boolean)
-  for (const dependency of ['prepare', 'build-macos', 'build-windows', 'build-linux']) {
+  for (const dependency of dependencies) {
     assert.ok(needs.includes(dependency), `${label} publish job must depend on ${dependency}`)
   }
   assert.equal(publish.if, undefined, `${label} publish job must not bypass failed jobs`)

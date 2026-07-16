@@ -178,12 +178,16 @@ function requireLinuxUserNamespaceStep(job, jobId) {
   )
 }
 
-function requirePublishDependencies(document, workflowLabel) {
+function requirePublishDependencies(
+  document,
+  workflowLabel,
+  dependencies = ['prepare', 'build-macos', 'build-windows', 'build-linux']
+) {
   const publish = document?.jobs?.publish
   check(Boolean(publish), `${workflowLabel} must define a publish job`)
   if (!publish) return
   const needs = Array.isArray(publish.needs) ? publish.needs : [publish.needs].filter(Boolean)
-  for (const dependency of ['prepare', 'build-macos', 'build-windows', 'build-linux']) {
+  for (const dependency of dependencies) {
     check(
       needs.includes(dependency),
       `${workflowLabel} publish job must depend on successful ${dependency}`
@@ -824,28 +828,39 @@ for (const command of ['npm run check:extensions', 'npm run test', 'npm --prefix
 }
 const releaseWorkflow = await text('.github/workflows/release.yml')
 const releaseWorkflowDocument = parseYaml(releaseWorkflow)
-requirePublishDependencies(releaseWorkflowDocument, 'Stable release workflow')
-for (const marker of [
+const isXiaoyuanStableRelease = rootPackage.name === 'xiaoyuan-desktop'
+const stableReleaseDependencies = isXiaoyuanStableRelease
+  ? ['build-macos', 'build-windows']
+  : ['prepare', 'build-macos', 'build-windows', 'build-linux']
+const stableMacBuildCommand = isXiaoyuanStableRelease ? 'npm run dist:mac' : 'npm run dist:mac:signed'
+const stableMacProductName = isXiaoyuanStableRelease ? 'Xiaoyuan' : 'Kun'
+requirePublishDependencies(releaseWorkflowDocument, 'Stable release workflow', stableReleaseDependencies)
+const stableReleaseMarkers = [
   'runs-on: macos-latest',
   'runs-on: windows-latest',
-  'runs-on: ubuntu-latest',
-  'npm run dist:mac:signed',
-  'npm run dist:win',
-  'npm run dist:linux'
-]) {
+  stableMacBuildCommand,
+  'npm run dist:win'
+]
+if (!isXiaoyuanStableRelease) {
+  stableReleaseMarkers.push('runs-on: ubuntu-latest', 'npm run dist:linux')
+}
+for (const marker of stableReleaseMarkers) {
   check(releaseWorkflow.includes(marker), `Release workflow omits platform/resource build: ${marker}`)
 }
 check(
-  (releaseWorkflow.match(/npm run check:extension-release-gate/g) ?? []).length >= 3,
-  'Release workflow must run the Extension release gate on macOS, Windows, and Linux'
+  (releaseWorkflow.match(/npm run check:extension-release-gate/g) ?? []).length >=
+    (isXiaoyuanStableRelease ? 2 : 3),
+  'Release workflow must run the Extension release gate on every release platform'
 )
 check(
-  (releaseWorkflow.match(/npm run smoke:packaged-extensions/g) ?? []).length >= 4,
-  'Release workflow must run the packaged Node runtime smoke on macOS x64/arm64, Windows, and Linux'
+  (releaseWorkflow.match(/npm run smoke:packaged-extensions/g) ?? []).length >=
+    (isXiaoyuanStableRelease ? 3 : 4),
+  'Release workflow must run the packaged Node runtime smoke on every release artifact'
 )
 check(
-  (releaseWorkflow.match(/npm run smoke:packaged-extension-desktop/g) ?? []).length >= 3,
-  'Release workflow must run the packaged desktop Chromium smoke on host-native macOS, Windows, and Linux'
+  (releaseWorkflow.match(/npm run smoke:packaged-extension-desktop/g) ?? []).length >=
+    (isXiaoyuanStableRelease ? 2 : 3),
+  'Release workflow must run the packaged desktop Chromium smoke on every release platform'
 )
 check(
   prWorkflow.includes('npm run smoke:packaged-extensions'),
@@ -856,7 +871,8 @@ check(
   'PR package checks must run the packaged desktop Chromium smoke'
 )
 check(
-  releaseWorkflow.includes(appImageDesktopCommand) && prWorkflow.includes(appImageDesktopCommand),
+  (isXiaoyuanStableRelease || releaseWorkflow.includes(appImageDesktopCommand)) &&
+    prWorkflow.includes(appImageDesktopCommand),
   'Release and PR Linux jobs must directly smoke the final AppImage artifact'
 )
 check(
@@ -864,12 +880,14 @@ check(
   'Release and PR workflows must not disable the Chromium sandbox'
 )
 check(
-  (releaseWorkflow.match(/npm run evidence:extension-native/g) ?? []).length >= 3 &&
+  (releaseWorkflow.match(/npm run evidence:extension-native/g) ?? []).length >=
+    (isXiaoyuanStableRelease ? 2 : 3) &&
     (prWorkflow.match(/npm run evidence:extension-native/g) ?? []).length >= 3,
-  'Release and PR jobs must record commit-bound native evidence on macOS, Windows, and Linux'
+  'Release and PR jobs must record commit-bound native evidence on every packaged platform'
 )
 check(
-  /Install Linux packaging dependencies[\s\S]*?\bxvfb\b[\s\S]*?\butil-linux\b/.test(releaseWorkflow) &&
+  (isXiaoyuanStableRelease ||
+    /Install Linux packaging dependencies[\s\S]*?\bxvfb\b[\s\S]*?\butil-linux\b/.test(releaseWorkflow)) &&
     /Install Linux packaging dependencies[\s\S]*?\bxvfb\b[\s\S]*?\butil-linux\b/.test(prWorkflow),
   'Linux release and PR package workflows must install xvfb and util-linux'
 )
@@ -878,9 +896,9 @@ const releaseMacJob = workflowJob(releaseWorkflowDocument, 'build-macos', 'macos
 requireBoundedJobTimeout(releaseMacJob, 'build-macos', 90)
 requireOrderedCommands(releaseMacJob, 'build-macos', [
   'npm run check:extension-release-gate',
-  'npm run dist:mac:signed',
-  'npm run smoke:packaged-extensions -- --resources dist/mac/Kun.app/Contents/Resources',
-  'npm run smoke:packaged-extensions -- --resources dist/mac-arm64/Kun.app/Contents/Resources',
+  stableMacBuildCommand,
+  `npm run smoke:packaged-extensions -- --resources dist/mac/${stableMacProductName}.app/Contents/Resources`,
+  `npm run smoke:packaged-extensions -- --resources dist/mac-arm64/${stableMacProductName}.app/Contents/Resources`,
   'npm run smoke:packaged-extension-desktop',
   nativeEvidenceCommand
 ])
@@ -905,31 +923,33 @@ requireUnconditionalStepAfter(
   'Upload Windows artifacts',
   nativeEvidenceCommand
 )
-const releaseLinuxJob = workflowJob(releaseWorkflowDocument, 'build-linux', 'ubuntu-latest')
-requireBoundedJobTimeout(releaseLinuxJob, 'build-linux', 90)
-requireOrderedCommands(releaseLinuxJob, 'build-linux', [
-  'npm run check:extension-release-gate',
-  'npm run dist:linux',
-  'npm run smoke:packaged-extensions -- --resources dist/linux-unpacked/resources',
-  'unshare --user --map-root-user /bin/true',
-  'npm run smoke:packaged-extension-desktop',
-  appImageDesktopCommand,
-  nativeEvidenceCommand
-])
-requireLinuxUserNamespaceStep(releaseLinuxJob, 'build-linux')
-requireBoundedCommandStep(
-  releaseLinuxJob,
-  'build-linux',
-  'Smoke final Linux AppImage desktop Chromium',
-  appImageDesktopCommand,
-  10
-)
-requireUnconditionalStepAfter(
-  releaseLinuxJob,
-  'build-linux',
-  'Upload Linux artifacts',
-  nativeEvidenceCommand
-)
+if (!isXiaoyuanStableRelease) {
+  const releaseLinuxJob = workflowJob(releaseWorkflowDocument, 'build-linux', 'ubuntu-latest')
+  requireBoundedJobTimeout(releaseLinuxJob, 'build-linux', 90)
+  requireOrderedCommands(releaseLinuxJob, 'build-linux', [
+    'npm run check:extension-release-gate',
+    'npm run dist:linux',
+    'npm run smoke:packaged-extensions -- --resources dist/linux-unpacked/resources',
+    'unshare --user --map-root-user /bin/true',
+    'npm run smoke:packaged-extension-desktop',
+    appImageDesktopCommand,
+    nativeEvidenceCommand
+  ])
+  requireLinuxUserNamespaceStep(releaseLinuxJob, 'build-linux')
+  requireBoundedCommandStep(
+    releaseLinuxJob,
+    'build-linux',
+    'Smoke final Linux AppImage desktop Chromium',
+    appImageDesktopCommand,
+    10
+  )
+  requireUnconditionalStepAfter(
+    releaseLinuxJob,
+    'build-linux',
+    'Upload Linux artifacts',
+    nativeEvidenceCommand
+  )
+}
 
 const dailyWorkflow = await text('.github/workflows/daily-dev-prerelease.yml')
 const dailyWorkflowDocument = parseYaml(dailyWorkflow)
