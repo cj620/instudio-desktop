@@ -33,6 +33,7 @@ const WIDE_BOUNDS = Object.freeze({ width: 1_800, height: 1_100 })
 const NARROW_BOUNDS = Object.freeze({ width: 960, height: 900 })
 const UI_PLUGIN_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/
 const OVERFLOW_TOLERANCE_PX = 1
+const CONTENT_COLUMN_CLEARANCE_PX = 32
 
 async function main() {
   if (process.argv.includes('--help')) {
@@ -481,6 +482,7 @@ async function readLayoutSnapshot(workbench) {
       excess: element ? Math.max(0, element.scrollWidth - element.clientWidth) : 0
     })
     const character = document.querySelector('.ds-ui-plugin-character')
+    const characterLayer = document.querySelector('.ds-ui-plugin-character-layer')
     const stage = document.querySelector('.ds-chat-stage')
     const composer = document.querySelector('.ds-floating-composer')
     const cdpStyle = document.querySelector('#kun-ui-plugin-theme-cdp')
@@ -513,6 +515,9 @@ async function readLayoutSnapshot(workbench) {
           : 'missing',
         visible: character instanceof HTMLElement
           ? character.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
+          : false,
+        topmostAtCenter: character instanceof HTMLElement && characterLayer instanceof HTMLElement
+          ? characterIsTopmostAtCenter(character, characterLayer)
           : false
       },
       stage: elementSnapshot('.ds-chat-stage'),
@@ -542,6 +547,21 @@ async function readLayoutSnapshot(workbench) {
 
     function round(value) {
       return Math.round(value * 100) / 100
+    }
+
+    function characterIsTopmostAtCenter(image, layer) {
+      const bounds = image.getBoundingClientRect()
+      const previousImagePointerEvents = image.style.pointerEvents
+      const previousLayerPointerEvents = layer.style.pointerEvents
+      image.style.pointerEvents = 'auto'
+      layer.style.pointerEvents = 'auto'
+      const topmost = document.elementFromPoint(
+        bounds.left + bounds.width / 2,
+        bounds.top + bounds.height / 2
+      )
+      image.style.pointerEvents = previousImagePointerEvents
+      layer.style.pointerEvents = previousLayerPointerEvents
+      return topmost === image
     }
 
     function elementOwnsTopmostAtCenter(element) {
@@ -575,6 +595,9 @@ function assertWidePresentation(id, snapshot) {
   if (!snapshot.character.visible || !hasArea(snapshot.character.rect)) {
     throw new Error(`${id}: portrait is not visible in the wide Kun workbench`)
   }
+  if (!snapshot.character.topmostAtCenter) {
+    throw new Error(`${id}: portrait is geometrically visible but occluded at its center`)
+  }
   const reserve = snapshot.attributes['data-ui-plugin-content-reserve']
   if (
     reserve !== 'none' &&
@@ -582,11 +605,21 @@ function assertWidePresentation(id, snapshot) {
   ) {
     throw new Error(`${id}: ${reserve} content reserve still overlaps the Composer`)
   }
+  if (
+    reserve !== 'none' &&
+    snapshot.character.rect.x - snapshot.content.composer.rect.right < CONTENT_COLUMN_CLEARANCE_PX
+  ) {
+    throw new Error(
+      `${id}: ${reserve} content reserve leaves less than ` +
+      `${CONTENT_COLUMN_CLEARANCE_PX}px between the Kun content column and portrait`
+    )
+  }
   if (snapshot.layers.character.style?.display === 'none' || !hasArea(snapshot.layers.character.rect)) {
     throw new Error(`${id}: character layer is hidden in the wide Kun workbench`)
   }
   const contentZIndex = numericZIndex(snapshot.content.stageContent.style?.zIndex)
-  for (const [name, layer] of Object.entries(snapshot.layers)) {
+  for (const name of ['decor', 'scrim']) {
+    const layer = snapshot.layers[name]
     const layerZIndex = numericZIndex(layer.style?.zIndex)
     if (layerZIndex === null || contentZIndex === null || layerZIndex >= contentZIndex) {
       throw new Error(
@@ -594,6 +627,8 @@ function assertWidePresentation(id, snapshot) {
         `Kun content z-index ${snapshot.content.stageContent.style?.zIndex ?? 'missing'}`
       )
     }
+  }
+  for (const [name, layer] of Object.entries(snapshot.layers)) {
     if (layer.style?.pointerEvents !== 'none') {
       throw new Error(`${id}: ${name} presentation layer can intercept pointer input`)
     }
