@@ -15,6 +15,7 @@ import type {
 } from '../shared/gui-update'
 import { nextGuiUpdateCheckDelay } from '../shared/gui-update-schedule'
 import { DEFAULT_GUI_UPDATE_CHANNEL, normalizeGuiUpdateChannel } from '../shared/gui-update'
+import type { AppLocale } from '../shared/app-locales'
 
 // 自动更新读取当前仓库(本 fork)的 GitHub Releases。owner/repo 默认从
 // package.json#repository 解析,可用 XIAOYUAN_GITHUB_REPO 环境变量覆盖。
@@ -38,7 +39,7 @@ let configuredChannel: GuiUpdateChannel = normalizeGuiUpdateChannel(
   envWithLegacyFallback('KUN_UPDATE_CHANNEL', 'DEEPSEEK_GUI_UPDATE_CHANNEL') || undefined
 )
 let getSelectedChannel: (() => GuiUpdateChannel | Promise<GuiUpdateChannel>) | null = null
-let getSelectedLocale: (() => 'en' | 'zh' | Promise<'en' | 'zh'>) | null = null
+let getSelectedLocale: (() => AppLocale | Promise<AppLocale>) | null = null
 let beforeInstallUpdate: (() => void | Promise<void>) | null = null
 let beforeInstallUpdatePromise: Promise<void> | null = null
 let setUpdateInstallQuitting: ((active: boolean) => void) | null = null
@@ -496,7 +497,7 @@ export function initializeGuiUpdater(
   windowGetter: () => BrowserWindow | null,
   channelGetter?: () => GuiUpdateChannel | Promise<GuiUpdateChannel>,
   beforeInstall?: () => void | Promise<void>,
-  localeGetter?: () => 'en' | 'zh' | Promise<'en' | 'zh'>,
+  localeGetter?: () => AppLocale | Promise<AppLocale>,
   updateInstallQuittingSetter?: (active: boolean) => void
 ): void {
   getMainWindow = windowGetter

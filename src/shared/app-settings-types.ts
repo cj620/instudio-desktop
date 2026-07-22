@@ -1,3 +1,4 @@
+import type { AppLocale } from './app-locales'
 import type { GuiUpdateChannel } from './gui-update'
 import type { KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
 import type { LocalWhisperDownloadSourceId } from './local-whisper'
@@ -362,6 +363,8 @@ export type KunRuntimeSettingsV1 = {
   insecure: boolean
   /** GUI-managed MCP progressive discovery/search settings written into Kun config.json. */
   mcpSearch: KunMcpSearchSettingsV1
+  /** User-local, digest-bound grants for repository `.kun/project.json` MCP declarations. */
+  projectConfig: KunProjectConfigSettingsV1
   /** Persistent store backend used by Kun. */
   storage: KunStorageSettingsV1
   /** Fallback compaction thresholds and summary behavior. Per-model thresholds live in Kun config models.profiles. */
@@ -413,6 +416,12 @@ export type KunRuntimeSettingsV1 = {
   /** Provider id paired with codeReviewModel. */
   codeReviewProviderId?: string
   codeReviewAccountId?: string
+  /** Optional model override for Plan-mode turns. Empty = the main conversation model. */
+  planModel?: string
+  /** Provider id paired with planModel. */
+  planProviderId?: string
+  /** Opaque account id paired with planProviderId. */
+  planAccountId?: string
   /** Reasoning depth for thread-title generation. Default 'off'. */
   titleReasoningEffort?: ModelReasoningEffort
   /** Reasoning depth for whole-session summary generation. Default 'off'. */
@@ -602,6 +611,17 @@ export type KunMcpSearchSettingsV1 = {
   minScore: number
 }
 
+export type KunProjectConfigGrantV1 = {
+  /** Canonical real workspace path. Project files never persist this grant. */
+  workspaceRoot: string
+  /** SHA-256 of the normalized versioned `.kun/project.json` document. */
+  configDigest: string
+}
+
+export type KunProjectConfigSettingsV1 = {
+  grants: KunProjectConfigGrantV1[]
+}
+
 export type KunStorageBackend = 'hybrid' | 'file'
 
 export type KunStorageSettingsV1 = {
@@ -655,6 +675,10 @@ export type KunToolArgumentRepairSettingsV1 = {
 
 export type KunRuntimeTuningSettingsV1 = {
   /**
+   * 单轮代理任务的总运行时长上限（毫秒），包含模型响应和工具执行。
+   */
+  maxWallTimeMs: number
+  /**
    * Max idle gap (ms) between streaming chunks before a turn fails with
    * `stream_idle_timeout`. `0` disables the guard — useful for local LLM
    * servers that stay silent while prefilling a very large prompt.
@@ -677,6 +701,7 @@ export type KunSettingsEnvelopeV1 = {
 export type AgentRuntimeSettingsMapV1 = KunSettingsEnvelopeV1
 
 export type KunRuntimeTuningSettingsPatchV1 = {
+  maxWallTimeMs?: number
   streamIdleTimeoutMs?: number
   toolStorm?: Partial<KunToolStormSettingsV1>
   toolArgumentRepair?: Partial<KunToolArgumentRepairSettingsV1>
@@ -691,10 +716,11 @@ export type KunTokenEconomySettingsPatchV1 = Partial<
 export type KunRuntimeSettingsPatchV1 = Partial<
   Omit<
     KunRuntimeSettingsV1,
-    'mcpSearch' | 'storage' | 'contextCompaction' | 'runtimeTuning' | 'tokenEconomy' | 'toolOutputLimits' | 'imageGeneration' | 'speechToText' | 'textToSpeech' | 'promptOptimization' | 'musicGeneration' | 'videoGeneration' | 'instructions' | 'computerUse' | 'quality' | 'modelProfiles' | 'subagents'
+    'mcpSearch' | 'projectConfig' | 'storage' | 'contextCompaction' | 'runtimeTuning' | 'tokenEconomy' | 'toolOutputLimits' | 'imageGeneration' | 'speechToText' | 'textToSpeech' | 'promptOptimization' | 'musicGeneration' | 'videoGeneration' | 'instructions' | 'computerUse' | 'quality' | 'modelProfiles' | 'subagents'
   >
 > & {
   mcpSearch?: Partial<KunMcpSearchSettingsV1>
+  projectConfig?: Partial<KunProjectConfigSettingsV1>
   tokenEconomy?: KunTokenEconomySettingsPatchV1
   toolOutputLimits?: Partial<KunToolOutputLimitsSettingsV1>
   storage?: Partial<KunStorageSettingsV1>
@@ -1951,7 +1977,7 @@ export type TerminalSettingsPatchV1 = {
 
 export type AppSettingsV1 = {
   version: 1
-  locale: 'en' | 'zh'
+  locale: AppLocale
   theme: 'system' | 'light' | 'dark'
   uiFontScale: UiFontScale
   chatContentMaxWidthPx: ChatContentMaxWidthPx

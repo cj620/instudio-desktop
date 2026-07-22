@@ -1,15 +1,14 @@
 import type i18next from 'i18next'
-import type { AppSettingsV1 } from '@shared/app-settings'
+import type { AppSettingsV1, ModelReasoningEffort } from '@shared/app-settings'
 import type { ModelProviderModelGroup } from '@shared/kun-gui-api'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import { extensionWorkbenchClient } from '../extensions/extension-workbench-client'
 import type { ChatState, ChatStoreGet, ChatStoreSet, InitialSetupMode, PluginHostRoute, SettingsRouteSection } from './chat-store-types'
 import type { ComposerPlanMode } from './chat-store-helpers'
 import {
-  canSwitchComposerModel,
-  conversationHasVisionAttachments,
   composerModelSelectable,
   composerModeForThread,
+  composerReasoningEffortForSelection,
   persistComposerMode,
   persistComposerProviderId,
   providerIdForComposerModel,
@@ -27,6 +26,11 @@ type CreateAppActionsOptions = {
   i18n: typeof i18next
   persistComposerModel: (model: string) => void
   persistComposerMode: (mode: ComposerPlanMode) => void
+  persistComposerReasoningEffort: (
+    modelId: string,
+    providerId: string,
+    effort: ModelReasoningEffort
+  ) => void
   rememberThreadComposerMode: (threadId: string, mode: ComposerPlanMode) => void
   readStoredComposerModel: (allowedIds: readonly string[]) => string
   mergeComposerPickList: (upstreamOk: boolean, upstreamIds: string[]) => string[]
@@ -53,6 +57,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
   | 'setError'
   | 'setComposerMode'
   | 'setComposerModel'
+  | 'setComposerReasoningEffort'
   | 'setComposerAgentId'
   | 'loadComposerModels'
   | 'setRoute'
@@ -75,6 +80,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
     i18n,
     persistComposerModel,
     persistComposerMode,
+    persistComposerReasoningEffort,
     rememberThreadComposerMode,
     readStoredComposerModel,
     mergeComposerPickList,
@@ -108,20 +114,6 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
     setComposerModel: (modelId, providerId) => {
       const nextProviderId = providerId?.trim() || providerIdForComposerModel(get().composerModelGroups, modelId)
       const state = get()
-      const lockVisionToTextSwitch =
-        state.route === 'chat' &&
-        Array.isArray(state.blocks) &&
-        conversationHasVisionAttachments(state.blocks)
-      if (!canSwitchComposerModel(
-        lockVisionToTextSwitch,
-        state.composerModelGroups,
-        state.composerModel,
-        state.composerProviderId,
-        modelId,
-        nextProviderId
-      )) {
-        return
-      }
       const activeThreadId = state.activeThreadId
       if (activeThreadId) {
         rememberThreadComposerSelection(activeThreadId, modelId, nextProviderId)
@@ -129,7 +121,15 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
         persistComposerModel(modelId)
         persistComposerProviderId(nextProviderId)
       }
-      set({ composerModel: modelId, composerProviderId: nextProviderId })
+      set({
+        composerModel: modelId,
+        composerProviderId: nextProviderId,
+        composerReasoningEffort: composerReasoningEffortForSelection(
+          state.composerModelGroups,
+          modelId,
+          nextProviderId
+        )
+      })
       const trimmed = modelId.trim()
       const extensionProvider = state.composerModelGroups.find(
         (group) => group.providerId === nextProviderId
@@ -145,6 +145,16 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
           agents: { kun: { model: trimmed, providerId: nextProviderId } }
         })
       }
+    },
+
+    setComposerReasoningEffort: (effort) => {
+      const state = get()
+      persistComposerReasoningEffort(
+        state.composerModel,
+        state.composerProviderId,
+        effort
+      )
+      set({ composerReasoningEffort: effort })
     },
 
     setComposerAgentId: (agentId) => {
@@ -249,6 +259,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
             composerPickList: pick,
             composerModel: model,
             composerProviderId: providerId,
+            composerReasoningEffort: composerReasoningEffortForSelection(groups, model, providerId),
             composerModelGroups: groups
           }
         })

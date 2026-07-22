@@ -3,8 +3,7 @@ name: Daily Dev Prerelease
 on:
   workflow_dispatch:
   # Daily cron 已停用:本 fork 的 origin 上没有 develop 分支,且产物名已 rebrand
-  # 为 Xiaoyuan-*,而本工作流仍按 Kun-* 上传 / 校验,跑起来必然失败。重新启用前
-  # 需先修好 ref(改指向真实 dev 分支)与所有 Kun-* → Xiaoyuan-* 的文件名。
+  # Xiaoyuan artifact names are kept in sync with electron-builder.config.cjs.
   # schedule:
   #   # GitHub cron 使用 UTC,对应 Asia/Shanghai 的 12:00 和次日 00:00。
   #   - cron: '0 4,16 * * *'
@@ -87,6 +86,15 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
+      - name: Install host-native FFmpeg
+        run: |
+          brew install ffmpeg-full
+          ffmpeg_bin="$(brew --prefix ffmpeg-full)/bin"
+          "$ffmpeg_bin/ffmpeg" -hide_banner -filters 2>&1 | grep -Eq '[[:space:]]drawtext[[:space:]]'
+          echo "$ffmpeg_bin" >> "$GITHUB_PATH"
+          echo "KUN_FFMPEG_PATH=$ffmpeg_bin/ffmpeg" >> "$GITHUB_ENV"
+          echo "KUN_FFPROBE_PATH=$ffmpeg_bin/ffprobe" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: npm ci
 
@@ -96,16 +104,37 @@ jobs:
       - name: Build macOS packages
         run: npm run dist:mac
 
+      - name: Verify packaged macOS x64 native architecture
+        run: npm run verify:packaged-macos-native -- --resources dist/mac/小元.app/Contents/Resources --arch x64
+
+      - name: Verify packaged macOS arm64 native architecture
+        run: npm run verify:packaged-macos-native -- --resources dist/mac-arm64/小元.app/Contents/Resources --arch arm64
+
+      - name: Smoke packaged OCR dependencies (macOS arm64)
+        env:
+          KUN_PACKAGED_RESOURCES_DIR: dist/mac-arm64/小元.app/Contents/Resources
+        run: node scripts/smoke-packaged-ocr.cjs
+
       - name: Smoke packaged Extension Node runtime (macOS x64)
-        run: npm run smoke:packaged-extensions -- --resources dist/mac/Kun.app/Contents/Resources
+        run: npm run smoke:packaged-extensions -- --resources dist/mac/小元.app/Contents/Resources
 
       - name: Smoke packaged Extension Node runtime (macOS arm64)
-        run: npm run smoke:packaged-extensions -- --resources dist/mac-arm64/Kun.app/Contents/Resources
+        run: npm run smoke:packaged-extensions -- --resources dist/mac-arm64/小元.app/Contents/Resources
+
+      - name: Smoke host-native FFmpeg broker (fail closed)
+        env:
+          KUN_RUN_MEDIA_SMOKE: '1'
+        run: npm run smoke:extension-native-media
+
+      - name: Smoke packaged Kun Video Editor native workflow
+        run: npm run smoke:packaged-video-editor-native
 
       - name: Smoke packaged Extension desktop Chromium (host-native macOS)
         run: npm run smoke:packaged-extension-desktop
 
       - name: Record commit-bound macOS artifact evidence
+        env:
+          KUN_EVIDENCE_COMMIT: ${{ needs.prepare.outputs.head_sha }}
         run: npm run evidence:extension-native
 
       - name: Upload macOS artifacts
@@ -115,11 +144,62 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           path: |
-            dist/Kun-*-mac-*.dmg
-            dist/Kun-*-mac-*.zip
-            dist/Kun-*-mac-*.blockmap
+            dist/Xiaoyuan-*-mac-*.dmg
+            dist/Xiaoyuan-*-mac-*.zip
+            dist/Xiaoyuan-*-mac-*.blockmap
             dist/latest-mac.yml
             dist/extension-native-evidence-darwin.json
+
+  verify-macos-x64:
+    name: Verify macOS x64 prerelease artifact
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    needs:
+      - prepare
+      - build-macos
+    steps:
+      - name: Check out develop commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.head_sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download final macOS prerelease artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: daily-dev-mac
+          path: release-artifacts
+
+      - name: Extract final macOS x64 ZIP
+        run: |
+          set -euo pipefail
+          archives=(release-artifacts/Xiaoyuan-*-mac-x64.zip)
+          if [[ ${#archives[@]} -ne 1 || ! -f "${archives[0]}" ]]; then
+            echo "::error::Expected exactly one final macOS x64 ZIP"
+            find release-artifacts -maxdepth 2 -type f -print | sort
+            exit 1
+          fi
+          mkdir -p dist/mac-x64-verified
+          ditto -x -k "${archives[0]}" dist/mac-x64-verified
+
+      - name: Verify final macOS x64 native architecture
+        run: npm run verify:packaged-macos-native -- --resources dist/mac-x64-verified/小元.app/Contents/Resources --arch x64
+
+      - name: Smoke final macOS x64 OCR dependencies
+        env:
+          KUN_PACKAGED_RESOURCES_DIR: dist/mac-x64-verified/小元.app/Contents/Resources
+        run: node scripts/smoke-packaged-ocr.cjs
+
+      - name: Smoke final macOS x64 Extension Node runtime
+        run: npm run smoke:packaged-extensions -- --resources dist/mac-x64-verified/小元.app/Contents/Resources
+
+      - name: Smoke final macOS x64 desktop Chromium
+        run: npm run smoke:packaged-extension-desktop -- --resources dist/mac-x64-verified/小元.app/Contents/Resources
 
   build-windows:
     name: Build Windows
@@ -148,6 +228,19 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
+      - name: Install host-native FFmpeg
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ffmpeg.exe -ErrorAction SilentlyContinue) -or -not (Get-Command ffprobe.exe -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg --yes --no-progress
+          }
+          $ffmpegPath = (Get-Command ffmpeg.exe).Source
+          if ((& $ffmpegPath -hide_banner -filters 2>&1 | Out-String) -notmatch '\sdrawtext\s') {
+            throw 'Installed FFmpeg does not provide the required drawtext filter.'
+          }
+          "KUN_FFMPEG_PATH=$ffmpegPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "KUN_FFPROBE_PATH=$((Get-Command ffprobe.exe).Source)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Install dependencies
         run: npm ci
 
@@ -160,10 +253,20 @@ jobs:
       - name: Smoke packaged Extension Node runtime
         run: npm run smoke:packaged-extensions -- --resources dist/win-unpacked/resources
 
+      - name: Smoke host-native FFmpeg broker (fail closed)
+        env:
+          KUN_RUN_MEDIA_SMOKE: '1'
+        run: npm run smoke:extension-native-media
+
+      - name: Smoke packaged Kun Video Editor native workflow
+        run: npm run smoke:packaged-video-editor-native
+
       - name: Smoke packaged Extension desktop Chromium
         run: npm run smoke:packaged-extension-desktop
 
       - name: Record commit-bound Windows artifact evidence
+        env:
+          KUN_EVIDENCE_COMMIT: ${{ needs.prepare.outputs.head_sha }}
         run: npm run evidence:extension-native
 
       - name: Upload Windows artifacts
@@ -173,8 +276,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           path: |
-            dist/Kun-*-win-x64.exe
-            dist/Kun-*-win-x64.exe.blockmap
+            dist/Xiaoyuan-*-win-x64.exe
+            dist/Xiaoyuan-*-win-x64.exe.blockmap
             dist/latest.yml
             dist/extension-native-evidence-win32.json
 
@@ -208,7 +311,8 @@ jobs:
       - name: Install Linux packaging dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libarchive-tools rpm build-essential python3 xvfb xauth util-linux
+          sudo apt-get install -y --no-install-recommends libarchive-tools rpm build-essential python3 xvfb xauth util-linux ffmpeg
+          ffmpeg -hide_banner -filters 2>&1 | grep -Eq '[[:space:]]drawtext[[:space:]]'
 
       - name: Install dependencies
         run: npm ci
@@ -221,6 +325,19 @@ jobs:
 
       - name: Smoke packaged Extension Node runtime
         run: npm run smoke:packaged-extensions -- --resources dist/linux-unpacked/resources
+
+      - name: Smoke host-native FFmpeg broker (fail closed)
+        env:
+          KUN_RUN_MEDIA_SMOKE: '1'
+        run: npm run smoke:extension-native-media
+
+      - name: Build deterministic Kun Video Editor extension package
+        run: npm run pack:kun-video-editor
+
+      - name: Smoke packaged Kun Video Editor native workflow
+        run: >
+          npm run smoke:packaged-video-editor-native --
+          --archive dist/kun-video-editor-0.4.4.kunx
 
       - name: Prepare and verify Linux user namespace sandbox
         run: |
@@ -240,6 +357,8 @@ jobs:
         run: npm run smoke:packaged-extension-appimage
 
       - name: Record commit-bound Linux artifact evidence
+        env:
+          KUN_EVIDENCE_COMMIT: ${{ needs.prepare.outputs.head_sha }}
         run: npm run evidence:extension-native
 
       - name: Upload Linux artifacts
@@ -249,10 +368,11 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           path: |
-            dist/Kun-*-linux-x86_64.AppImage
-            dist/Kun-*-linux-x86_64.AppImage.blockmap
+            dist/Xiaoyuan-*-linux-x86_64.AppImage
+            dist/Xiaoyuan-*-linux-x86_64.AppImage.blockmap
             dist/latest-linux.yml
             dist/extension-native-evidence-linux.json
+            dist/kun-video-editor-*.kunx
 
   publish:
     name: Publish prerelease
@@ -260,6 +380,7 @@ jobs:
     needs:
       - prepare
       - build-macos
+      - verify-macos-x64
       - build-windows
       - build-linux
     env:
@@ -275,6 +396,15 @@ jobs:
           fetch-depth: 0
           ref: ${{ env.HEAD_SHA }}
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Download daily dev artifacts
         uses: actions/download-artifact@v4
         with:
@@ -286,15 +416,16 @@ jobs:
         run: |
           set -euo pipefail
           required=(
-            "Kun-${DEV_VERSION}-mac-arm64.dmg"
-            "Kun-${DEV_VERSION}-mac-x64.dmg"
-            "Kun-${DEV_VERSION}-mac-arm64.zip"
-            "Kun-${DEV_VERSION}-mac-x64.zip"
-            "Kun-${DEV_VERSION}-win-x64.exe"
-            "Kun-${DEV_VERSION}-linux-x86_64.AppImage"
+            "Xiaoyuan-${DEV_VERSION}-mac-arm64.dmg"
+            "Xiaoyuan-${DEV_VERSION}-mac-x64.dmg"
+            "Xiaoyuan-${DEV_VERSION}-mac-arm64.zip"
+            "Xiaoyuan-${DEV_VERSION}-mac-x64.zip"
+            "Xiaoyuan-${DEV_VERSION}-win-x64.exe"
+            "Xiaoyuan-${DEV_VERSION}-linux-x86_64.AppImage"
             "extension-native-evidence-darwin.json"
             "extension-native-evidence-win32.json"
             "extension-native-evidence-linux.json"
+            "kun-video-editor-0.4.4.kunx"
           )
 
           for file in "${required[@]}"; do
@@ -341,6 +472,17 @@ jobs:
             git push origin "refs/tags/${TAG_NAME}"
           fi
 
+      - name: Verify three-platform native evidence bundle
+        run: >
+          npm run verify:extension-native-evidence --
+          --directory release-artifacts
+          --commit "${HEAD_SHA}"
+          --tag "${TAG_NAME}"
+          --version "${DEV_VERSION}"
+
+      - name: Verify downloadable Kun Video Editor extension package
+        run: npm run verify:kun-video-editor-package -- --input release-artifacts
+
       - name: Create or update GitHub prerelease
         run: |
           set -euo pipefail
@@ -363,7 +505,7 @@ jobs:
           set -euo pipefail
           mapfile -d '' assets < <(
             find release-artifacts -type f \
-              \( -name 'Kun-*' -o -name 'latest*.yml' \) \
+              \( -name 'Xiaoyuan-*' -o -name 'latest*.yml' -o -name 'extension-native-evidence-*.json' -o -name 'kun-video-editor-*.kunx' \) \
               -print0
           )
 

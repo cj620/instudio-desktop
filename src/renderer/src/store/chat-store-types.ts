@@ -14,14 +14,18 @@ import type {
 } from '../agent/types'
 import type { KunRuntimeStatusPayload } from '@shared/kun-gui-api'
 import type {
+  AppLocale,
   ClawImAgentProfileV1,
   ClawImChannelV1,
   ClawImPlatformCredentialV1,
   ClawImProvider,
   ClawImSettingsV1,
-  ClawModel
+  ClawModel,
+  ModelReasoningEffort
 } from '@shared/app-settings'
 import type { ModelProviderModelGroup } from '@shared/kun-gui-api'
+import type { ComposerContextAttachment } from '@kun/extension-api'
+import type { ExtensionComposerContextEvent } from '@shared/extension-ipc'
 
 export type QueuedUserMessage = {
   id: string
@@ -36,6 +40,7 @@ export type QueuedUserMessage = {
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
   fileReferences?: UserFileReference[]
+  composerContexts?: ComposerContextAttachment[]
   /**
    * Optional GUI plan context forwarded to Kun. The renderer
    * attaches it for plan/refine turns so the runtime can advertise
@@ -54,6 +59,7 @@ export type QueuedUserMessage = {
   /** True only for the product Design surface; Code whiteboards leave this unset. */
   guiDesignMode?: boolean
   guiDesignArtifact?: GuiDesignArtifactMessageContext
+  writeContext?: WriteAssistantMessageContext
 }
 
 /**
@@ -76,6 +82,17 @@ export type GuiDesignArtifactMessageContext = {
   relativePath: string
 }
 
+/** Renderer-only routing context that keeps a Write send bound to the file and
+ * conversation selected when the user submitted it. */
+export type WriteAssistantMessageContext = {
+  workspaceRoot: string
+  activeFilePath: string | null
+  documentEpoch: number
+  contentRevision: number
+  /** Filled after the first explicit ensure; queued sends keep this identity. */
+  threadId?: string
+}
+
 export type SendMessageOverrides = {
   queued?: QueuedUserMessage
   model?: string
@@ -91,6 +108,8 @@ export type SendMessageOverrides = {
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
   fileReferences?: UserFileReference[]
+  composerContexts?: ComposerContextAttachment[]
+  writeContext?: WriteAssistantMessageContext
 }
 
 export type InitialSetupMode = 'required' | 'preview'
@@ -113,6 +132,7 @@ export type SettingsRouteSection =
   | 'claw'
   | 'updates'
   | 'terminal'
+  | 'dataMigration'
 export type AppRoute = 'chat' | 'write' | 'design' | 'settings' | 'plugins' | 'extensions' | 'claw' | 'schedule' | 'workflow'
 export type PluginHostRoute = 'chat' | 'claw'
 
@@ -213,6 +233,7 @@ export type ChatState = {
   composerMode: 'plan' | 'agent'
   composerModel: string
   composerProviderId: string
+  composerReasoningEffort: ModelReasoningEffort
   composerPickList: string[]
   composerModelGroups: ModelProviderModelGroup[]
   /**
@@ -222,6 +243,8 @@ export type ChatState = {
   composerAgentId: string
   disabledSkillIds: string[]
   queuedMessages: QueuedUserMessage[]
+  /** Host-authenticated, workspace-scoped context awaiting one main-chat turn. */
+  extensionComposerContexts: ExtensionComposerContextEvent[]
   watchTurnCompletion: Record<string, boolean>
   unreadThreadIds: Record<string, boolean>
   /**
@@ -236,13 +259,14 @@ export type ChatState = {
   setError: (message: string | null) => void
   setComposerMode: (mode: 'plan' | 'agent') => void
   setComposerModel: (modelId: string, providerId?: string) => void
+  setComposerReasoningEffort: (effort: ModelReasoningEffort) => void
   setComposerAgentId: (agentId: string) => void
   loadComposerModels: () => Promise<void>
   setRoute: (r: AppRoute) => void
   openWrite: () => Promise<void>
   openCode: () => Promise<void>
-  ensureWriteThreadForWorkspace: (workspaceRoot?: string) => Promise<string | null>
-  createWriteThread: (workspaceRoot?: string) => Promise<string | null>
+  ensureWriteThreadForWorkspace: (workspaceRoot?: string, activeFilePath?: string) => Promise<string | null>
+  createWriteThread: (workspaceRoot?: string, activeFilePath?: string) => Promise<string | null>
   ensureDesignThreadForWorkspace: (workspaceRoot?: string, docId?: string) => Promise<string | null>
   createDesignThread: (workspaceRoot?: string, docId?: string) => Promise<string | null>
   selectWriteThread: (threadId: string, workspaceRoot?: string) => Promise<void>
@@ -315,6 +339,9 @@ export type ChatState = {
   reviewActiveThread: (target: ReviewTarget) => Promise<boolean>
   drainQueuedMessages: () => Promise<void>
   removeQueuedMessage: (id: string) => void
+  guideQueuedMessage: (id: string) => Promise<boolean>
+  attachExtensionComposerContext: (event: ExtensionComposerContextEvent) => void
+  removeExtensionComposerContext: (attachmentId: string) => void
   rewindAndResend: (userBlockId: string, newText: string) => Promise<void>
   rollbackWorkspaceToCheckpoint: (checkpointId: string) => Promise<void>
   interrupt: (options?: { discard?: boolean }) => Promise<void>
@@ -366,7 +393,7 @@ export type ChatState = {
     action: { kind: 'submit'; answers: UserInputAnswer[] } | { kind: 'cancel' }
   ) => Promise<void>
   selectInspectorItem: (id: string | null) => void
-  applyI18nFromSettings: (locale: 'en' | 'zh') => Promise<void>
+  applyI18nFromSettings: (locale: AppLocale) => Promise<void>
   reloadUiSettings: () => Promise<void>
 }
 

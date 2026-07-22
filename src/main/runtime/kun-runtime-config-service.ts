@@ -10,6 +10,10 @@ import {
   RuntimeTuningConfigSchema,
   type KunConfig
 } from '../../../kun/src/config/kun-config.js'
+import {
+  RuntimeConfigApplyRequest,
+  type RuntimeConfigApplyRequest as RuntimeConfigApplyPayload
+} from '../../../kun/src/contracts/runtime-config.js'
 import { HooksConfigSchema } from '../../../kun/src/hooks/hook-config.js'
 import {
   AttachmentsCapabilityConfig,
@@ -68,6 +72,10 @@ import {
   LEGACY_RUNTIME_OVERRIDE_SOURCE_ID,
   legacyProviderCredentialSourceId
 } from '../legacy-provider-settings-migration'
+import {
+  approvedProjectMcpServers,
+  stripGeneratedProjectMcpServers
+} from '../services/project-config-service'
 
 export type ManagedRuntimeHotApplyResult = 'applied' | 'restart_required' | 'failed'
 
@@ -82,13 +90,20 @@ export async function syncGuiManagedKunConfig(
   options?: {
     scheduleMcp?: { settings: AppSettingsV1; launch: ClawScheduleMcpLaunchConfig }
     mcpConfigPath?: string
+    appSettings?: AppSettingsV1
   }
 ): Promise<KunConfig> {
   const configPath = join(dataDir, 'config.json')
   const existing = sanitizeKunConfigSections(await readJsonObjectIfExists(configPath))
-  const importedMcpServers = await readGuiManagedMcpServers(
-    options?.mcpConfigPath ?? resolveKunMcpJsonPath()
+  const importedMcpServers = stripGeneratedProjectMcpServers(
+    await readGuiManagedMcpServers(
+      options?.mcpConfigPath ?? resolveKunMcpJsonPath()
+    )
   )
+  const appSettings = options?.appSettings ?? options?.scheduleMcp?.settings
+  const projectMcpServers = appSettings
+    ? await approvedProjectMcpServers(appSettings)
+    : {}
   const hasImportedEnabledMcpServer = Object.values(importedMcpServers)
     .some((server) => objectValue(server).enabled !== false)
   const serve = objectValue(existing?.serve)
@@ -97,7 +112,7 @@ export async function syncGuiManagedKunConfig(
   const search = objectValue(mcp.search)
   const skills = await skillCapabilityConfigForRuntime(
     objectValue(capabilities.skills),
-    options?.scheduleMcp?.settings
+    appSettings
   )
   const providers = options?.scheduleMcp?.settings
     ? providersConfigForRuntime(options.scheduleMcp.settings)
@@ -155,12 +170,13 @@ export async function syncGuiManagedKunConfig(
       subagents: subagentProfilesForRuntime(runtime.subagents ?? { enabled: true, profiles: [] }),
       mcp: {
         ...mcp,
-        ...(options?.scheduleMcp || runtime.mcpSearch.enabled || hasImportedEnabledMcpServer
+        ...(options?.scheduleMcp || runtime.mcpSearch.enabled || hasImportedEnabledMcpServer || Object.keys(projectMcpServers).length > 0
           ? { enabled: mcp.enabled === false ? false : true }
           : {}),
         servers: {
-          ...objectValue(mcp.servers),
+          ...stripGeneratedProjectMcpServers(objectValue(mcp.servers)),
           ...importedMcpServers,
+          ...projectMcpServers,
           ...(options?.scheduleMcp ? {
             [GUI_SCHEDULE_MCP_SERVER_NAME]: buildGuiScheduleKunMcpServer(
               options.scheduleMcp.settings,
@@ -208,14 +224,23 @@ type KunRuntimeConfigSettings = Pick<KunRuntimeSettingsV1,
 export function buildManagedRuntimeHotApplyBody(
   settings: AppSettingsV1,
   config: KunConfig
-): KunConfig {
+): RuntimeConfigApplyPayload {
   const runtime = resolveKunRuntimeSettings(settings)
   const serve = config.serve ?? {}
+  // Process-owned fields are valid in persisted config, but the hot-apply API
+  // deliberately rejects them because changing them requires a restart.
+  const hotServe = { ...serve }
+  delete hotServe.host
+  delete hotServe.port
+  delete hotServe.dataDir
+  delete hotServe.runtimeToken
+  delete hotServe.insecure
+  delete hotServe.storage
   const defaultClientApiKey = resolveCodexOAuthApiKey(runtime.apiKey).apiKey
-  return {
+  return RuntimeConfigApplyRequest.parse({
     ...config,
     serve: {
-      ...serve,
+      ...hotServe,
       apiKey: defaultClientApiKey || runtime.apiKey,
       baseUrl: runtime.baseUrl,
       modelProxyUrl: resolveModelProviderProxyUrl(settings),
@@ -228,7 +253,7 @@ export function buildManagedRuntimeHotApplyBody(
       toolOutputLimits: runtime.toolOutputLimits,
       providers: serve.providers ?? {}
     }
-  }
+  })
 }
 
 /** Pure response policy: callers own logging, retry, restart, and status effects. */
@@ -311,8 +336,48 @@ function sanitizeCapabilities(value: unknown): Record<string, unknown> {
 }
 
 function parseKunConfigSection(schema: SafeParseSchema, value: unknown): Record<string, unknown> {
-  const parsed = schema.safeParse(objectValue(value))
-  return parsed.success ? objectValue(parsed.data) : {}
+  const raw = objectValue(value)
+  const parsed = schema.safeParse(raw)
+  if (parsed.success) return objectValue(parsed.data)
+
+  // Older GUI/runtime versions may leave a newly introduced top-level key in
+  // the config. A strict schema should reject that key, but dropping the
+  // entire section also discards valid credentials and endpoint settings.
+  // Retry with only keys known by the object schema; invalid known values are
+  // still rejected by the normal schema and therefore fail closed.
+  const shape = schemaShape(schema)
+  if (!shape) return {}
+  const known = Object.fromEntries(Object.keys(shape).flatMap((key) =>
+    key in raw ? [[key, raw[key]] as const] : []
+  ))
+  const sanitized = schema.safeParse(known)
+  if (sanitized.success) return objectValue(sanitized.data)
+
+  // A known nested object may itself contain an obsolete key. Validate each
+  // top-level value independently so one stale nested option cannot discard
+  // unrelated credentials or endpoint fields from the section.
+  const validEntries = Object.entries(known).flatMap(([key, entry]) => {
+    const parsedEntry = schema.safeParse({ [key]: entry })
+    return parsedEntry.success ? [[key, objectValue(parsedEntry.data)[key]] as const] : []
+  })
+  return Object.fromEntries(validEntries)
+}
+
+function schemaShape(schema: SafeParseSchema): Record<string, unknown> | undefined {
+  const candidate = schema as SafeParseSchema & {
+    shape?: unknown
+    def?: unknown
+    _def?: unknown
+  }
+  for (const container of [candidate, candidate.def, candidate._def]) {
+    if (!container || typeof container !== 'object') continue
+    const rawShape = 'shape' in container ? (container as { shape?: unknown }).shape : undefined
+    const shape = typeof rawShape === 'function' ? rawShape() : rawShape
+    if (shape && typeof shape === 'object' && !Array.isArray(shape)) {
+      return shape as Record<string, unknown>
+    }
+  }
+  return undefined
 }
 
 function parseKunHooksSection(value: unknown): unknown[] {

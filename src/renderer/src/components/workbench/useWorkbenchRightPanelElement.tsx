@@ -81,8 +81,14 @@ type WorkbenchRightPanelElementOptions = Pick<
     | 'workspaceRoot'
     | 'onSelectTarget'
     | 'onCloseTarget'
+    | 'pinnedTargetKeys'
+    | 'preserveAcrossThreads'
+    | 'onTogglePinnedTarget'
+    | 'onCloseOtherTargets'
+    | 'onTogglePreserveAcrossThreads'
   >
   extensionView?: RightPanelHostProps['extensionView']
+  code?: RightPanelHostProps['code']
   workspaceRoot?: string
 }
 
@@ -122,6 +128,7 @@ export function useWorkbenchRightPanelElement({
   canvas,
   file,
   extensionView,
+  code,
   workspaceRoot
 }: WorkbenchRightPanelElementOptions): ReactElement | null {
   const designPanelMode = resolveDesignPanelMode({
@@ -194,7 +201,11 @@ export function useWorkbenchRightPanelElement({
         ...file,
         onClose: onCollapse
       }}
+      mcpSkills={{
+        onOpenSettings: () => openSettings('agents')
+      }}
       extensionView={extensionView}
+      code={code}
       workspaceRoot={workspaceRoot}
       onCollapse={onCollapse}
     />

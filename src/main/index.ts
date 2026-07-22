@@ -15,7 +15,7 @@ import {
   type ContextMenuParams,
   type MenuItemConstructorOptions
 } from 'electron'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,6 +29,11 @@ import kunTrayPng from '../asset/img/kun_tray.png?url'
 import { createAppIcon, pickTrayIcon, prepareTrayIcon } from './app-icon'
 import { buildTrayMenuTemplate, parseTrayThreads, type TrayThreadSummary } from './tray-session-menu'
 import { configureLinuxWaylandImeSwitches } from './app-command-line'
+import {
+  clearDevelopmentRendererHttpCache,
+  configureDevelopmentRendererHttpCache,
+  reloadRenderer
+} from './dev-renderer-cache'
 import { configureAppIdentity } from './app-identity'
 import { shouldStartHidden, syncLoginItemSettings } from './desktop-behavior'
 import { resolveLogDirectory, resolveNamedPreloadPath, resolvePreloadPath } from './main-paths'
@@ -83,9 +88,17 @@ import {
 } from './kun-process'
 import { expandHomePath } from './settings-store'
 import { KunRuntimeSupervisor, type KunRuntimeStatus } from './kun-runtime-supervisor'
-import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
+import { configureLogger, logError, logInfo, logWarn, pruneOnStartup } from './logger'
 import { cleanupUnusedGitCheckpointsIfDue } from './services/git-checkpoint-service'
 import { resolveMainWindowCloseDecision } from './window-close-behavior'
+import {
+  MAIN_WINDOW_RENDERER_RECOVERY_DELAY_MS,
+  MAIN_WINDOW_RENDERER_RECOVERY_MAX_ATTEMPTS,
+  MAIN_WINDOW_RENDERER_RECOVERY_WINDOW_MS,
+  MainWindowRendererRecoveryBudget,
+  shouldRecoverMainFrameLoad,
+  shouldRecoverRendererProcess
+} from './main-window-renderer-recovery'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
 import { createScheduleRuntime, type ScheduleRuntime } from './schedule-runtime'
 import { createWorkflowRuntime, type WorkflowRuntime } from './workflow-runtime'
@@ -101,6 +114,7 @@ import {
   stableSettingsStringify
 } from './runtime-settings-apply-mode'
 import { registerAppIpcHandlers } from './ipc/register-app-ipc-handlers'
+import { DataMigrationController } from './data-migration/data-migration-controller'
 import {
   configureManagedWeixinBridgeUrlResolver,
   pollFeishuInstall,
@@ -128,16 +142,21 @@ import {
 import { ManagedRuntimeShutdownCoordinator } from './runtime/managed-runtime-shutdown-coordinator'
 import {
   registerKunExtensionProtocol,
-  registerKunExtensionSchemeAsPrivileged
 } from './extensions/extension-resource-protocol'
+import {
+  ExtensionMediaProtocolRegistry,
+  registerKunExtensionPlatformSchemesAsPrivileged
+} from './extensions/extension-media-protocol'
 import { ExtensionDescriptorResolver } from './extensions/extension-descriptor-resolver'
 import { ExtensionViewSessionRegistry } from './extensions/extension-view-sessions'
+import { ExtensionExternalBrowserManager } from './extensions/extension-external-browser'
 import { ExtensionViewProtocolRegistry } from './extensions/extension-view-protocol-registry'
 import { installWebviewSecurityGuards } from './extensions/extension-webview-security'
 import {
   ExtensionConsentTokenService,
   ProtectedExtensionActionService
 } from './extensions/extension-consent-service'
+import { localizeProtectedExtensionPrompt } from './extensions/protected-extension-prompt'
 import { ProtectedCredentialSurfaceController } from './extensions/protected-credential-surface'
 import { ExtensionContentScriptController } from './extensions/extension-content-script-controller'
 import { createExtensionWorkbenchEnvironment } from './extensions/extension-workbench-environment'
@@ -149,10 +168,9 @@ import {
 } from './ipc/register-extension-ipc-handlers'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-registerKunExtensionSchemeAsPrivileged(protocol)
-// 必须和 electron-builder.config.cjs#appId 完全一致,Windows 才能把通知 /
-// 任务栏分组挂到正确的应用上。小元 是全新产品,appId 已改为
-// com.instudio.xiaoyuan,这里同步跟上。
+registerKunExtensionPlatformSchemesAsPrivileged(protocol)
+// Must match electron-builder.config.cjs#appId so Windows notifications and
+// taskbar grouping are associated with the Xiaoyuan application.
 const APP_USER_MODEL_ID = 'com.instudio.xiaoyuan'
 const startupTraceEnabled =
   process.env.KUN_STARTUP_TRACE === '1' || process.env.DEEPSEEK_GUI_STARTUP_TRACE === '1'
@@ -248,6 +266,7 @@ traceStartup('legacy data migration checked', {
 })
 
 configureLinuxWaylandImeSwitches()
+configureDevelopmentRendererHttpCache(app.commandLine, devServerHintUrl())
 
 if (!runningClawScheduleMcpServer && process.platform === 'win32') {
   app.setAppUserModelId(APP_USER_MODEL_ID)
@@ -267,6 +286,7 @@ let trayMenuOpenPromise: Promise<void> | null = null
 let closeWindowPromptOpen = false
 let checkpointCleanupTimer: ReturnType<typeof setInterval> | null = null
 const extensionViewSessions = new ExtensionViewSessionRegistry()
+const extensionExternalBrowsers = new ExtensionExternalBrowserManager(extensionViewSessions)
 let protectedCredentialSurface: ProtectedCredentialSurfaceController | null = null
 let bindExtensionMainWindow: ((window: BrowserWindow) => void) | undefined
 
@@ -1076,7 +1096,7 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
   traceStartup('createWindow:start')
   const preloadPath = resolvePreloadPath(__dirname)
   const usesDesktopTitleBar = process.platform === 'win32' || process.platform === 'linux'
-  mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: 1280,
     height: 840,
     minWidth: 960,
@@ -1095,49 +1115,134 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
       additionalArguments: [`--kun-home-dir=${homedir()}`]
     }
   })
-  bindExtensionMainWindow?.(mainWindow)
+  mainWindow = window
+  bindExtensionMainWindow?.(window)
   if (usesDesktopTitleBar) {
-    mainWindow.setMenu(null)
-    mainWindow.setMenuBarVisibility(false)
+    window.setMenu(null)
+    window.setMenuBarVisibility(false)
   }
-  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+  const recoveryBudget = new MainWindowRendererRecoveryBudget()
+  let recoveryTimer: ReturnType<typeof setTimeout> | null = null
+  let rendererProcessId = 0
+  const scheduleRendererRecovery = (trigger: string, detail: unknown): void => {
+    if (
+      recoveryTimer ||
+      isAppQuitInProgress() ||
+      window.isDestroyed() ||
+      window.webContents.isDestroyed()
+    ) return
+
+    const attempt = recoveryBudget.reserve()
+    if (attempt === null) {
+      logError('renderer', 'Automatic main-window recovery stopped after repeated failures.', {
+        trigger,
+        detail,
+        maxAttempts: MAIN_WINDOW_RENDERER_RECOVERY_MAX_ATTEMPTS,
+        windowMs: MAIN_WINDOW_RENDERER_RECOVERY_WINDOW_MS
+      })
+      return
+    }
+
+    logWarn('renderer', 'Scheduling a main-window reload after renderer failure.', {
+      trigger,
+      detail,
+      attempt,
+      maxAttempts: MAIN_WINDOW_RENDERER_RECOVERY_MAX_ATTEMPTS
+    })
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = null
+      if (
+        isAppQuitInProgress() ||
+        window.isDestroyed() ||
+        window.webContents.isDestroyed()
+      ) return
+      logWarn('renderer', 'Reloading the main window after renderer failure.', {
+        trigger,
+        attempt
+      })
+      reloadRenderer(window.webContents, devServerHintUrl())
+    }, MAIN_WINDOW_RENDERER_RECOVERY_DELAY_MS)
+    recoveryTimer.unref?.()
+  }
+
+  window.webContents.on('preload-error', (_event, preloadPath, error) => {
     const message = error instanceof Error ? error.message : String(error)
     console.error(`[kun-gui] failed to load preload ${preloadPath}:`, error)
     logError('preload', 'Failed to load preload script', { preloadPath, message })
   })
-  mainWindow.webContents.on('context-menu', (event, params) => {
+  window.webContents.on('render-process-gone', (_event, details) => {
+    if (isAppQuitInProgress() || !shouldRecoverRendererProcess(details.reason)) return
+    const detail = {
+      reason: details.reason,
+      exitCode: details.exitCode,
+      rendererProcessId
+    }
+    console.error('[kun-gui] main renderer process exited unexpectedly:', detail)
+    logError('renderer', 'Main renderer process exited unexpectedly.', detail)
+    scheduleRendererRecovery('render-process-gone', detail)
+  })
+  window.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame, frameProcessId) => {
+      if (
+        isAppQuitInProgress() ||
+        !shouldRecoverMainFrameLoad(errorCode, isMainFrame)
+      ) return
+      const detail = {
+        errorCode,
+        errorDescription,
+        validatedURL,
+        frameProcessId
+      }
+      console.error('[kun-gui] main renderer failed to load:', detail)
+      logError('renderer', 'Main renderer failed to load.', detail)
+      scheduleRendererRecovery('did-fail-load', detail)
+    }
+  )
+  window.webContents.on('unresponsive', () => {
+    if (isAppQuitInProgress()) return
+    logWarn('renderer', 'Main renderer became unresponsive.', { rendererProcessId })
+  })
+  window.webContents.on('responsive', () => {
+    logInfo('renderer', `Main renderer became responsive again (pid=${rendererProcessId}).`)
+  })
+  window.webContents.on('context-menu', (event, params) => {
     event.preventDefault()
-    const window = mainWindow
-    if (!window || window.isDestroyed()) return
+    if (window.isDestroyed()) return
     showRendererContextMenu(window, params)
   })
   const showWindow = (): void => {
     if (options.suppressInitialShow) return
-    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return
-    mainWindow.show()
+    if (window.isDestroyed() || window.isVisible()) return
+    window.show()
   }
-  mainWindow.on('close', (event) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    handleMainWindowClose(mainWindow, event)
+  window.on('close', (event) => {
+    if (window.isDestroyed()) return
+    handleMainWindowClose(window, event)
   })
-  mainWindow.on('closed', () => {
-    mainWindow = null
+  window.on('closed', () => {
+    if (recoveryTimer) {
+      clearTimeout(recoveryTimer)
+      recoveryTimer = null
+    }
+    if (mainWindow === window) mainWindow = null
   })
   const devUrl = devServerHintUrl()
   traceStartup('createWindow:load', { devUrl: devUrl ?? 'file' })
   if (devUrl) {
-    mainWindow.loadURL(devUrl)
+    void window.loadURL(devUrl)
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    void window.loadFile(join(__dirname, '../renderer/index.html'))
   }
-  mainWindow.once('ready-to-show', () => {
+  window.once('ready-to-show', () => {
     traceStartup('window:ready-to-show')
     showWindow()
   })
-  mainWindow.webContents.once('did-finish-load', () => {
+  window.webContents.on('did-finish-load', () => {
     traceStartup('window:did-finish-load')
-    if (runtimeSupervisor.lastStatus && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('runtime:status', runtimeSupervisor.lastStatus)
+    rendererProcessId = window.webContents.getOSProcessId()
+    if (runtimeSupervisor.lastStatus && !window.isDestroyed()) {
+      window.webContents.send('runtime:status', runtimeSupervisor.lastStatus)
     }
     showWindow()
   })
@@ -1462,6 +1567,16 @@ app.whenReady().then(async () => {
   traceStartup('app.whenReady:start')
   if (!gotSingleInstanceLock) return
 
+  try {
+    const cleared = await clearDevelopmentRendererHttpCache(
+      session.defaultSession,
+      devServerHintUrl()
+    )
+    if (cleared) traceStartup('development renderer HTTP cache cleared')
+  } catch (error) {
+    console.warn('[kun-gui] failed to clear the development renderer HTTP cache:', error)
+  }
+
   if (process.platform === 'darwin') {
     const macDockIcon = createAppIcon(kunMacLogoPng)
     app.dock?.setIcon(macDockIcon.isEmpty() ? appIcon : macDockIcon)
@@ -1488,15 +1603,28 @@ app.whenReady().then(async () => {
   }
   registerExtensionProtocol(protocol)
 
+  const extensionProtocolForPartition = (partition: string) => session.fromPartition(partition).protocol
+  const extensionMediaProtocols = new ExtensionMediaProtocolRegistry({
+    sessions: extensionViewSessions,
+    protocolForPartition: extensionProtocolForPartition,
+    onDenied: ({ extensionId, sessionId, code }) => {
+      logWarn('extension-media-protocol', 'Denied isolated View media request.', {
+        extensionId,
+        sessionId,
+        code
+      })
+    }
+  })
   const extensionViewProtocols = new ExtensionViewProtocolRegistry(
-    (partition) => session.fromPartition(partition).protocol,
+    extensionProtocolForPartition,
     ({ extensionId, code, sessionId }) => {
       logWarn('extension-protocol', 'Denied isolated View resource request.', {
         extensionId,
         code,
         sessionId
       })
-    }
+    },
+    extensionMediaProtocols
   )
 
   traceStartup('install webview guards:start')
@@ -1505,37 +1633,24 @@ app.whenReady().then(async () => {
   })
   traceStartup('install webview guards:done')
   const extensionConsentTokens = new ExtensionConsentTokenService()
-  const protectedExtensionActions = new ProtectedExtensionActionService(
-    extensionConsentTokens,
-    async (binding, copy) => {
-      const detail = [
-        `Extension: ${binding.extensionId} ${binding.extensionVersion}`,
-        `Operation: ${binding.operationKind}`,
-        binding.workspaceRoot ? `Workspace: ${binding.workspaceRoot}` : undefined,
-        copy.detail
-      ].filter((value): value is string => Boolean(value)).join('\n\n')
-      const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined
-      const dialogOptions = {
-        type: 'warning' as const,
-        title: copy.title,
-        message: copy.message,
-        detail,
-        buttons: ['Continue', 'Cancel'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
-        normalizeAccessKeys: true
-      }
-      const result = parent
-        ? await dialog.showMessageBox(parent, dialogOptions)
-        : await dialog.showMessageBox(dialogOptions)
-      return result.response === 0
-    }
-  )
   protectedCredentialSurface = new ProtectedCredentialSurfaceController(
     resolveNamedPreloadPath(__dirname, 'extension-protected-surface')
   )
   protectedCredentialSurface.register()
+  const protectedExtensionActions = new ProtectedExtensionActionService(
+    extensionConsentTokens,
+    async (binding, copy) => {
+      const settings = await store.load()
+      const prompt = localizeProtectedExtensionPrompt(binding, copy, settings.locale)
+      const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined
+      return protectedCredentialSurface!.promptConsent(parent ?? null, {
+        ...prompt,
+        extensionValue: `${binding.extensionId} ${binding.extensionVersion}`,
+        operationValue: binding.operationKind,
+        ...(binding.workspaceRoot ? { workspaceValue: binding.workspaceRoot } : {})
+      })
+    }
+  )
   const extensionContentScripts = new ExtensionContentScriptController(extensionDescriptors, {
     onDiagnostic: (diagnostic) => {
       logWarn('extension-content-script', diagnostic.message, {
@@ -1606,6 +1721,13 @@ app.whenReady().then(async () => {
 
   traceStartup('ipc registration:start')
   let publishExtensionWorkbenchEnvironmentChanged = async (): Promise<void> => undefined
+  const requestExtensionWorkbenchEnvironmentPublish = (): void => {
+    void publishExtensionWorkbenchEnvironmentChanged().catch((error) => {
+      logWarn('extension-workbench', 'Failed to publish extension workbench environment.', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    })
+  }
   const applySettingsPatch = async (partial: AppSettingsPatch): Promise<AppSettingsV1> => {
     const prev = await store.load()
     const effectivePartial = preserveRuntimeTokenForFullSettingsSnapshot(prev, partial)
@@ -1663,11 +1785,7 @@ app.whenReady().then(async () => {
     syncLoginItemSettings(saved)
     syncTray(saved)
     syncCheckpointCleanupTimer(saved)
-    void publishExtensionWorkbenchEnvironmentChanged().catch((error) => {
-      logWarn('extension-workbench', 'Failed to publish extension workbench environment.', {
-        message: error instanceof Error ? error.message : String(error)
-      })
-    })
+    requestExtensionWorkbenchEnvironmentPublish()
     return saved
   }
 
@@ -1679,7 +1797,7 @@ app.whenReady().then(async () => {
 
   const saveSettingsPatch = async (partial: AppSettingsPatch): Promise<AppSettingsV1> => {
     const saved = await store.patch(preserveRuntimeTokenForFullSettingsSnapshot(await store.load(), partial))
-    void publishExtensionWorkbenchEnvironmentChanged().catch(() => undefined)
+    requestExtensionWorkbenchEnvironmentPublish()
     return saved
   }
 
@@ -1709,6 +1827,10 @@ app.whenReady().then(async () => {
       const settings = await store.load()
       queueRuntimeMcpConfigApply(settings)
     },
+    onKunProjectConfigChanged: async () => {
+      const settings = await store.load()
+      queueRuntimeMcpConfigApply(settings)
+    },
     showTurnCompleteNotification,
     getAppVersion: () => app.getVersion(),
     readGuiUpdateState,
@@ -1716,6 +1838,29 @@ app.whenReady().then(async () => {
     resolveLogDirectory: () => resolveLogDirectory(app),
     logError
   })
+  const dataMigrationController = new DataMigrationController({
+    userDataPath: app.getPath('userData'),
+    store,
+    getMainWindow: () => mainWindow,
+    runtimeFetch: async (path, init = {}) => {
+      const settings = await store.load()
+      const ensured = await ensureRuntime(settings)
+      const requestSettings = ensured ?? settings
+      const headers = runtimeAuthHeaders(requestSettings)
+      new Headers(init.headers).forEach((value, key) => headers.set(key, value))
+      const normalizedPath = path.startsWith('/') ? path : `/${path}`
+      return fetch(`${getRuntimeBaseUrlForSettings(requestSettings)}${normalizedPath}`, {
+        ...init,
+        headers
+      } as RequestInit)
+    },
+    sourceInstallationId: `installation_${createHash('sha256').update(app.getPath('userData')).digest('hex').slice(0, 24)}`,
+    sourceAppVersion: app.getVersion(),
+    sourceRuntimeVersion: app.getVersion(),
+    featureEnabled: process.env.KUN_DATA_MIGRATION_ENABLED === '1' ||
+      (process.env.KUN_DATA_MIGRATION_ENABLED !== '0' && !app.isPackaged)
+  })
+  dataMigrationController.registerIpc()
   const extensionIpcOptions: RegisterExtensionIpcHandlersOptions = {
     getMainWindow: () => mainWindow,
     runtimeRequest: async (path, method, body, headers) => {
@@ -1725,6 +1870,8 @@ app.whenReady().then(async () => {
     descriptors: extensionDescriptors,
     viewSessions: extensionViewSessions,
     viewProtocols: extensionViewProtocols,
+    externalBrowsers: extensionExternalBrowsers,
+    mediaProtocols: extensionMediaProtocols,
     protectedActions: protectedExtensionActions,
     credentialSurface: protectedCredentialSurface,
     contentScripts: extensionContentScripts,
@@ -1753,17 +1900,17 @@ app.whenReady().then(async () => {
   publishExtensionWorkbenchEnvironmentChanged = () =>
     extensionIpcRegistration.publishWorkbenchEnvironmentChanged()
   const onNativeThemeUpdated = (): void => {
-    void publishExtensionWorkbenchEnvironmentChanged().catch(() => undefined)
+    requestExtensionWorkbenchEnvironmentPublish()
   }
   const onWorkbenchZoomChanged = (): void => {
-    void publishExtensionWorkbenchEnvironmentChanged().catch(() => undefined)
+    requestExtensionWorkbenchEnvironmentPublish()
   }
   bindExtensionMainWindow = (window) => {
     extensionIpcRegistration.bindMainWindow(window)
     window.webContents.on('zoom-changed', onWorkbenchZoomChanged)
   }
   nativeTheme.on('updated', onNativeThemeUpdated)
-  void publishExtensionWorkbenchEnvironmentChanged().catch(() => undefined)
+  requestExtensionWorkbenchEnvironmentPublish()
   const stopSecretRevealConsentPump = startExtensionSecretRevealConsentPump(
     extensionIpcOptions
   )
@@ -1774,6 +1921,7 @@ app.whenReady().then(async () => {
     stopSecretRevealConsentPump()
     stopExtensionNotificationPump()
     extensionIpcRegistration.dispose()
+    extensionExternalBrowsers.destroy()
     bindExtensionMainWindow = undefined
     nativeTheme.removeListener('updated', onNativeThemeUpdated)
     mainWindow?.webContents.removeListener('zoom-changed', onWorkbenchZoomChanged)

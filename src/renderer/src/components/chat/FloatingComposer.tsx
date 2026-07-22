@@ -25,6 +25,7 @@ import {
   PauseCircle,
   Pencil,
   Plus,
+  Puzzle,
   PlayCircle,
   SearchCode,
   Send,
@@ -42,8 +43,10 @@ import { useChatStore } from '../../store/chat-store'
 import type { AppRoute } from '../../store/chat-store-types'
 import { normalizeWorkspaceRoot } from '../../lib/workspace-path'
 import {
+  COMPOSER_FILE_REFERENCE_DRAG_MIME,
   composerFileReferenceFromPath,
   isComposerDirectoryReference,
+  parseComposerFileReferenceDragData,
   type ComposerFileReference
 } from '../../lib/composer-file-references'
 import {
@@ -116,6 +119,7 @@ export { shouldCaptureFileMentionCommitKey } from './use-composer-file-mentions'
 import { FloatingComposerFileMentionMenu } from './FloatingComposerFileMentionMenu'
 import { useComposerSlashCommandMenu } from './use-composer-slash-command-menu'
 import { FloatingComposerSlashCommandMenu } from './FloatingComposerSlashCommandMenu'
+import { FloatingComposerTodoProgress } from './FloatingComposerTodoProgress'
 
 export type { ComposerFileReference } from '../../lib/composer-file-references'
 export type { ComposerExecutionSettings } from './FloatingComposerExecutionPicker'
@@ -144,7 +148,6 @@ type Props = {
   composerPickList: string[]
   composerModelGroups?: ModelProviderModelGroup[]
   composerReasoningEffort?: string
-  lockVisionToTextModelSwitch?: boolean
   onComposerModelChange: (modelId: string, providerId?: string) => void
   onComposerReasoningEffortChange?: (effort: ComposerReasoningEffort) => void
   onConfigureProviders?: () => void
@@ -153,6 +156,7 @@ type Props = {
   modelControlVariant?: 'combined' | 'split'
   queuedMessages: QueuedComposerMessage[]
   onRemoveQueuedMessage: (id: string) => void
+  onGuideQueuedMessage?: (id: string) => void | Promise<unknown>
   attachments?: AttachmentReference[]
   attachmentUploadEnabled?: boolean
   attachmentUploadBusy?: boolean
@@ -275,7 +279,6 @@ export function FloatingComposer({
   composerPickList,
   composerModelGroups = EMPTY_MODEL_GROUPS,
   composerReasoningEffort,
-  lockVisionToTextModelSwitch = false,
   onComposerModelChange,
   onComposerReasoningEffortChange,
   onConfigureProviders,
@@ -284,6 +287,7 @@ export function FloatingComposer({
   modelControlVariant = 'combined',
   queuedMessages,
   onRemoveQueuedMessage,
+  onGuideQueuedMessage,
   attachments = EMPTY_ATTACHMENTS,
   attachmentUploadEnabled = false,
   attachmentUploadBusy = false,
@@ -337,6 +341,7 @@ export function FloatingComposer({
   const forkActiveThread = useChatStore((s) => s.forkActiveThread)
   const archiveThread = useChatStore((s) => s.archiveThread)
   const activeThreadGoal = useChatStore((s) => s.activeThreadGoal)
+  const activeThreadTodos = useChatStore((s) => s.activeThreadTodos)
   const setActiveThreadGoal = useChatStore((s) => s.setActiveThreadGoal)
   const setActiveThreadGoalStatus = useChatStore((s) => s.setActiveThreadGoalStatus)
   const clearActiveThreadGoal = useChatStore((s) => s.clearActiveThreadGoal)
@@ -421,7 +426,9 @@ export function FloatingComposer({
       ? clawHasInboundConversation
       : (hasActiveThread || !!effectiveWorkspaceRoot)
   )
-  const canChangeModel = canCompose && !busy
+  // Code's split controls configure the next submission. The active turn has
+  // already captured its model and reasoning effort, so busy must not lock them.
+  const canChangeModel = canCompose && (modelControlVariant === 'split' || !busy)
   const canSend = canCompose && (
     input.trim().length > 0 ||
     (attachmentUploadEnabled && attachments.length > 0) ||
@@ -431,6 +438,7 @@ export function FloatingComposer({
   const canPickFileReference = canCompose && fileReferenceEnabled && Boolean(effectiveWorkspaceRoot) && Boolean(onOpenFileReferencePicker)
   const canPickDesignReference = canCompose && fileReferenceEnabled && Boolean(onOpenDesignReferencePicker)
   const canPickLocalFileReference = canCompose && fileReferenceEnabled && Boolean(onPickFileReferences)
+  const canAddFileReference = canCompose && fileReferenceEnabled && Boolean(effectiveWorkspaceRoot) && Boolean(onAddFileReference)
   const showIntentToolbar = !compact && route === 'chat'
   const showComposerMenuButton = showIntentToolbar
   const canTogglePlanMode = canCompose && Boolean(onPlanCommand)
@@ -539,6 +547,15 @@ export function FloatingComposer({
           : useWorktreePool
             ? t('composerWorktreeModeHint')
             : null
+  const showTodoProgress = !compact
+    && route === 'chat'
+    && Boolean(activeThreadId)
+    && activeThreadTodos?.threadId === activeThreadId
+    && activeThreadTodos.items.length > 0
+    && slashQuery == null
+    && !composerMenuOpen
+    && !goalPanelOpen
+    && !pendingUserInputBlock
 
   useEffect(() => {
     if (!useWorktreePool || !effectiveWorkspaceRoot || typeof window.kunGui?.getGitBranches !== 'function') {
@@ -1031,14 +1048,21 @@ export function FloatingComposer({
 
   const handleComposerDragOver = (event: ReactDragEvent<HTMLDivElement>): void => {
     const dataTransferTypes = Array.from(event.dataTransfer.types ?? [])
+    const canAcceptFileReference = canAddFileReference && dataTransferTypes.includes(COMPOSER_FILE_REFERENCE_DRAG_MIME)
     const canAcceptImages = canPickAttachment && imageTransferHasImages(event.dataTransfer)
     const canAcceptPdf = canPickAttachment && Array.from(event.dataTransfer.files ?? []).some(isPdfFile)
-    if (!dataTransferTypes.includes('Files') && !canAcceptImages && !canAcceptPdf) return
+    if (!dataTransferTypes.includes('Files') && !canAcceptImages && !canAcceptPdf && !canAcceptFileReference) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
   }
 
   const handleComposerDrop = (event: ReactDragEvent<HTMLDivElement>): void => {
+    const draggedReference = canAddFileReference
+      ? parseComposerFileReferenceDragData(
+          event.dataTransfer.getData(COMPOSER_FILE_REFERENCE_DRAG_MIME),
+          effectiveWorkspaceRoot
+        )
+      : null
     const imageFiles = canPickAttachment ? imageFilesFromTransfer(event.dataTransfer) : []
     const rawFiles = Array.from(event.dataTransfer.files ?? [])
     const isImageLike = (file: File): boolean =>
@@ -1047,8 +1071,9 @@ export function FloatingComposer({
     const pathFiles = canPickLocalFileReference && onAddFileReference
       ? rawFiles.filter((file) => !isImageLike(file) && !isPdfFile(file))
       : []
-    if (imageFiles.length === 0 && pdfFiles.length === 0 && pathFiles.length === 0) return
+    if (!draggedReference && imageFiles.length === 0 && pdfFiles.length === 0 && pathFiles.length === 0) return
     event.preventDefault()
+    if (draggedReference) onAddFileReference?.(draggedReference)
     if ((imageFiles.length > 0 || pdfFiles.length > 0) && onPickAttachments) {
       onPickAttachments([...imageFiles, ...pdfFiles])
     }
@@ -1079,6 +1104,7 @@ export function FloatingComposer({
       <FloatingComposerQueuedMessages
         messages={queuedMessages}
         onRemove={onRemoveQueuedMessage}
+        onGuide={onGuideQueuedMessage}
       />
 
       <div className="relative">
@@ -1139,6 +1165,9 @@ export function FloatingComposer({
                 </button>
               </div>
             </div>
+          ) : null}
+          {showTodoProgress && activeThreadTodos ? (
+            <FloatingComposerTodoProgress todos={activeThreadTodos} />
           ) : null}
         </div>
 
@@ -1454,7 +1483,9 @@ export function FloatingComposer({
             <div className="flex flex-wrap items-center gap-2 px-1">
               {contextChips.map((chip) => {
                 const Icon =
-                  chip.kind === 'design-target' || chip.kind === 'canvas-selection'
+                  chip.kind === 'extension-context'
+                    ? Puzzle
+                    : chip.kind === 'design-target' || chip.kind === 'canvas-selection'
                     ? Target
                     : chip.kind === 'html-element'
                       ? TypeIcon
@@ -1493,7 +1524,7 @@ export function FloatingComposer({
           <textarea
             ref={draft.textareaRef}
             rows={1}
-            className={`ds-no-drag block w-full min-w-0 resize-none break-words bg-transparent px-1 py-2.5 text-[15px] leading-[1.45] text-ds-ink placeholder:text-ds-faint focus:outline-none [overflow-wrap:anywhere] ${
+            className={`ds-composer-textarea ds-no-drag block w-full min-w-0 resize-none break-words bg-transparent px-1 py-2.5 text-[15px] leading-[1.45] text-ds-ink placeholder:text-ds-faint focus:outline-none [overflow-wrap:anywhere] ${
               canEditComposer ? '' : 'opacity-80'
             } ${compact ? 'text-[14px] py-2' : 'min-h-[40px]'}`}
             placeholder={placeholder}
@@ -1588,7 +1619,7 @@ export function FloatingComposer({
                       type="button"
                       disabled={!canOpenComposerMenu}
                       onClick={handleComposerMenuButtonClick}
-                      className={`ds-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45 ${
+                      className={`ds-composer-menu-button ds-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45 ${
                         composerMenuOpen ? 'bg-ds-hover text-ds-ink' : ''
                       }`}
                       aria-label={t('composerMenuTitle')}
@@ -1676,7 +1707,6 @@ export function FloatingComposer({
                       composerPickList={composerPickList}
                       composerModelGroups={composerModelGroups}
                       composerReasoningEffort={composerReasoningEffort}
-                      lockVisionToTextModelSwitch={lockVisionToTextModelSwitch}
                       canChangeModel={canChangeModel}
                       controlVariant={modelControlVariant}
                       stretch={stretchModelPicker || showToolbarStartControls}
@@ -1686,7 +1716,7 @@ export function FloatingComposer({
                     />
                   )}
                   {hideModelPicker ? null : (
-                    <FloatingComposerAgentPicker compact={compact} disabled={!canChangeModel} />
+                    <FloatingComposerAgentPicker compact={compact} disabled={!canCompose || busy} />
                   )}
                   {showVoiceDictation ? (
                     <button
@@ -1743,7 +1773,7 @@ export function FloatingComposer({
                     type="button"
                     disabled={primaryActionDisabled}
                     onClick={handlePrimaryAction}
-                    className="ds-no-drag flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white shadow-[0_10px_22px_rgba(20,47,95,0.22)] transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-ds-card disabled:text-ds-faint disabled:shadow-none dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:disabled:bg-ds-card dark:disabled:text-ds-faint"
+                    className="ds-composer-primary-action ds-no-drag flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white shadow-[0_10px_22px_rgba(20,47,95,0.22)] transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-ds-card disabled:text-ds-faint disabled:shadow-none dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:disabled:bg-ds-card dark:disabled:text-ds-faint"
                     aria-label={primaryActionLabel}
                     title={primaryActionLabel}
                   >

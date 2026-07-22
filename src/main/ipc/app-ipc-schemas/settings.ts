@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  APP_LOCALES,
   IMAGE_GENERATION_QUALITIES,
   IMAGE_GENERATION_PROTOCOLS,
   IMAGE_GENERATION_RESOLUTIONS,
@@ -39,7 +40,7 @@ import {
   optionalTrimmedString,
   trimmedString
 } from './common'
-const localeSchema = z.enum(['en', 'zh'])
+const localeSchema = z.enum(APP_LOCALES)
 const themeSchema = z.enum(['system', 'light', 'dark'])
 const uiFontScaleSchema = z.union([
   z.number().min(UI_FONT_SCALE_MIN).max(UI_FONT_SCALE_MAX),
@@ -251,6 +252,12 @@ const kunRuntimePatchSchema = z.object({
     topKMax: z.number().int().positive().optional(),
     minScore: z.number().nonnegative().optional()
   }).strict().optional(),
+  projectConfig: z.object({
+    grants: z.array(z.object({
+      workspaceRoot: trimmedString(MAX_PATH_LENGTH),
+      configDigest: z.string().trim().regex(/^[a-fA-F0-9]{64}$/)
+    }).strict()).max(64).optional()
+  }).strict().optional(),
   storage: z.object({
     backend: kunStorageBackendSchema.optional(),
     sqlitePath: defaultPathSchema
@@ -266,6 +273,7 @@ const kunRuntimePatchSchema = z.object({
     summaryProviderId: z.string().trim().max(64).optional()
   }).strict().optional(),
   runtimeTuning: z.object({
+    maxWallTimeMs: z.number().int().positive().max(86_400_000).optional(),
     streamIdleTimeoutMs: z.number().int().min(0).max(3_600_000).optional(),
     toolStorm: z.object({
       enabled: z.boolean().optional(),
@@ -376,6 +384,9 @@ const kunRuntimePatchSchema = z.object({
   codeReviewModel: optionalModelIdSchema,
   codeReviewProviderId: z.string().trim().max(64).optional(),
   codeReviewAccountId: z.string().trim().max(256).optional(),
+  planModel: optionalModelIdSchema,
+  planProviderId: z.string().trim().max(64).optional(),
+  planAccountId: z.string().trim().max(256).optional(),
   // Per-role reasoning depth. Default 'off' is omitted by the normalizer.
   titleReasoningEffort: modelReasoningEffortSchema.optional(),
   summaryReasoningEffort: modelReasoningEffortSchema.optional(),

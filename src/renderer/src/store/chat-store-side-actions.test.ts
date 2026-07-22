@@ -349,6 +349,54 @@ describe('chat-store-side-actions', () => {
     expect(state.busy).toBe(true)
   })
 
+  it('deduplicates replayed compaction lifecycle events by item id', async () => {
+    const { actions, state, provider } = buildHarness()
+    const id = (await actions.spawnSideConversation())!
+    const sink = provider.subscribeMock.mock.calls.at(-1)?.[2] as ThreadEventSink
+
+    sink.onCompaction({
+      itemId: 'compaction_side_1',
+      summary: 'Compacting context',
+      status: 'running',
+      createdAt: '2026-06-02T00:00:00.000Z'
+    })
+    sink.onCompaction({
+      itemId: 'compaction_side_1',
+      summary: 'Compacted context',
+      status: 'success',
+      createdAt: '2026-06-02T00:00:01.000Z',
+      messagesBefore: 120
+    })
+
+    const blocks = state.sideConversations[id].blocks.filter((block) => block.kind === 'compaction')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toMatchObject({
+      id: 'compaction_side_1',
+      status: 'success',
+      summary: 'Compacted context',
+      messagesBefore: 120,
+      createdAt: '2026-06-02T00:00:00.000Z'
+    })
+  })
+
+  it('updates approval resolution inside the matching side conversation', async () => {
+    const { actions, state, provider } = buildHarness()
+    const id = (await actions.spawnSideConversation())!
+    const lastCall = provider.subscribeMock.mock.calls.at(-1) as
+      | [string, number, ThreadEventSink, AbortSignal]
+      | undefined
+    const sink = lastCall?.[2]
+    sink?.onApproval({ approvalId: 'appr_side', summary: 'Run remote command' })
+    sink?.onApprovalStatus?.({ approvalId: 'appr_side', status: 'expired' })
+
+    expect(state.sideConversations[id].blocks).toContainEqual(expect.objectContaining({
+      kind: 'approval',
+      approvalId: 'appr_side',
+      status: 'expired'
+    }))
+    expect(state.blocks).toEqual([])
+  })
+
   it('promoteSideConversation clears the relation by PATCH /v1/threads/{id} and refreshes the thread list', async () => {
     const { actions, state } = buildHarness()
     const id = (await actions.spawnSideConversation())!

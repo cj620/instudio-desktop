@@ -546,8 +546,8 @@ describe('syncGuiManagedKunConfig', () => {
       maxBytes: DEFAULT_TOOL_OUTPUT_MAX_BYTES
     })
     expect(parsed.contextCompaction).toMatchObject({
-      defaultSoftThreshold: 96000,
-      defaultHardThreshold: 108800,
+      defaultSoftThreshold: 192000,
+      defaultHardThreshold: 217600,
       summaryMode: 'model'
     })
     expect(parsed.models.profiles['deepseek-v4-pro']).toMatchObject({
@@ -566,6 +566,7 @@ describe('syncGuiManagedKunConfig', () => {
       }
     })
     expect(parsed.runtime.streamIdleTimeoutMs).toBe(450000)
+    expect(parsed.runtime.turnLimits).toMatchObject({ maxWallTimeMs: 86400000 })
     expect(parsed.runtime.toolStorm).toMatchObject({ enabled: true, windowSize: 8, threshold: 3 })
     expect(parsed.runtime.toolArgumentRepair).toMatchObject({ maxStringBytes: 524288 })
     expect(parsed.capabilities.attachments).toMatchObject({ enabled: true })
@@ -1160,6 +1161,7 @@ describe('syncGuiManagedKunConfig', () => {
         }
       },
       serve: {
+        runtimeToken: 'keep-this-token',
         legacyServeFlag: true,
         tokenEconomy: {
           customTokenEconomyFlag: 'keep',
@@ -1204,6 +1206,7 @@ describe('syncGuiManagedKunConfig', () => {
           summaryInputMaxBytes: 131072
         },
         runtimeTuning: {
+          maxWallTimeMs: 7_200_000,
           streamIdleTimeoutMs: 120000,
           toolStorm: {
             enabled: false,
@@ -1248,6 +1251,7 @@ describe('syncGuiManagedKunConfig', () => {
     expect(KunConfigSchema.safeParse(parsed).success).toBe(true)
     expect(parsed.legacyTopLevelFlag).toBeUndefined()
     expect(parsed.serve.legacyServeFlag).toBeUndefined()
+    expect(parsed.serve.runtimeToken).toBe('keep-this-token')
     expect(parsed.serve.storage).toMatchObject({
       backend: 'hybrid',
       sqlitePath: '/tmp/kun-index.sqlite3'
@@ -1304,6 +1308,7 @@ describe('syncGuiManagedKunConfig', () => {
     expect(parsed.runtime.toolStorm.customStormFlag).toBeUndefined()
     expect(parsed.runtime.customRuntimeFlag).toBeUndefined()
     expect(parsed.runtime.toolArgumentRepair).toMatchObject({ maxStringBytes: 262144 })
+    expect(parsed.runtime.turnLimits).toMatchObject({ maxWallTimeMs: 7_200_000 })
     expect(parsed.runtime.streamIdleTimeoutMs).toBe(120000)
     expect(parsed.capabilities.attachments).toMatchObject({ enabled: true })
     expect(parsed.capabilities.mcp.servers.github.command).toBe('github-mcp')
@@ -1658,6 +1663,13 @@ describe('subagentProfilesForRuntime', () => {
           name: 'Disabled custom',
           mode: 'subagent',
           toolPolicy: 'readOnly'
+        },
+        {
+          id: 'component-designer',
+          enabled: false,
+          name: '',
+          mode: 'subagent',
+          toolPolicy: 'inherit'
         }
       ]
     })
@@ -1668,6 +1680,7 @@ describe('subagentProfilesForRuntime', () => {
       toolPolicy: 'readOnly',
       blockedSkills: ['unsafe-skill']
     })
+    expect(config.profiles['component-designer']).toBeDefined()
     expect(config.profiles['custom-disabled']).toBeUndefined()
   })
 })

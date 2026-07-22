@@ -571,7 +571,7 @@ export function NodeConfigPanel({
 
   if (!node) {
     return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-[13px] text-ds-faint">
+      <div className="workflow-node-config-empty flex h-full items-center justify-center px-6 text-center text-[13px] text-ds-faint">
         {t('workflowNoSelection')}
       </div>
     )
@@ -581,7 +581,7 @@ export function NodeConfigPanel({
   const danglingRefs = collectDanglingRefs(node, upstreamNodes)
 
   return (
-    <div ref={panelRef} className="flex h-full min-h-0 flex-col">
+    <div ref={panelRef} className="workflow-node-config-panel flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-ds-border px-4 py-3">
         <h2 className="text-[13px] font-semibold text-ds-ink">
           {t(`workflowNode_${node.type}`)}

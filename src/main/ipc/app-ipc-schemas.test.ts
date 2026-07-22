@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { CONVERSATION_EXPORT_MAX_MARKDOWN_CHARS } from '../../shared/conversation-export'
 import {
   clawImInstallPollPayloadSchema,
   clawTaskFromTextPayloadSchema,
+  conversationExportPayloadSchema,
   isSafeOpenExternalUrl,
   runtimeRequestPayloadSchema,
   scheduleTaskFromTextPayloadSchema,
@@ -162,6 +164,17 @@ describe('app-ipc-schemas', () => {
       method: 'POST',
       body: '{"target":{"kind":"uncommittedChanges"}}'
     }).path).toBe('/v1/threads/thr_1/review')
+  })
+
+  it('accepts the read-only Kun turn status endpoint', () => {
+    expect(runtimeRequestPayloadSchema.parse({
+      path: '/v1/threads/thr_1/turns/turn_1',
+      method: 'GET'
+    }).path).toBe('/v1/threads/thr_1/turns/turn_1')
+    expect(() => runtimeRequestPayloadSchema.parse({
+      path: '/v1/threads/thr_1/turns/turn_1',
+      method: 'DELETE'
+    })).toThrow(/runtime request path is not allowed/)
   })
 
   it('accepts the LLM debug rounds endpoint', () => {
@@ -590,6 +603,17 @@ describe('app-ipc-schemas', () => {
     expect('quickChat' in (payload.agents ?? {})).toBe(false)
   })
 
+  it.each(['en', 'zh', 'ru', 'hi', 'th', 'ja', 'ko'] as const)(
+    'accepts the %s application locale in settings patches',
+    (locale) => {
+      expect(settingsPatchSchema.parse({ locale }).locale).toBe(locale)
+    }
+  )
+
+  it('rejects unsupported application locales', () => {
+    expect(() => settingsPatchSchema.parse({ locale: 'fr' })).toThrow()
+  })
+
   it('accepts persisted claw channel welcome markers in full settings snapshots', () => {
     const payload = settingsPatchSchema.parse({
       claw: {
@@ -680,6 +704,28 @@ describe('app-ipc-schemas', () => {
     })
 
     expect(payload.agents?.kun?.runtimeTuning?.streamIdleTimeoutMs).toBe(300000)
+  })
+
+  it('accepts a configurable maximum turn duration in runtime tuning patches', () => {
+    const payload = settingsPatchSchema.parse({
+      agents: {
+        kun: {
+          runtimeTuning: {
+            maxWallTimeMs: 7_200_000
+          }
+        }
+      }
+    })
+
+    expect(payload.agents?.kun?.runtimeTuning?.maxWallTimeMs).toBe(7_200_000)
+  })
+
+  it('rejects an out-of-range maximum turn duration', () => {
+    expect(() =>
+      settingsPatchSchema.parse({
+        agents: { kun: { runtimeTuning: { maxWallTimeMs: 86_400_001 } } }
+      })
+    ).toThrow()
   })
 
   it('rejects an out-of-range stream idle timeout', () => {
@@ -899,6 +945,26 @@ describe('app-ipc-schemas', () => {
 
     expect(payload.title).toBe('Kun answer')
     expect(payload.format).toBe('png')
+  })
+
+  it('validates conversation export payloads and rejects oversized transcripts', () => {
+    const payload = conversationExportPayloadSchema.parse({
+      title: 'Thread',
+      format: 'pdf',
+      markdown: '# Thread',
+      defaultFileName: 'Thread-2026-07-19'
+    })
+
+    expect(payload.format).toBe('pdf')
+    expect(payload.markdown).toBe('# Thread')
+    expect(() => conversationExportPayloadSchema.parse({
+      ...payload,
+      markdown: 'x'.repeat(CONVERSATION_EXPORT_MAX_MARKDOWN_CHARS + 1)
+    })).toThrow()
+    expect(() => conversationExportPayloadSchema.parse({
+      ...payload,
+      unexpected: true
+    })).toThrow()
   })
 
   it('accepts write rich clipboard payloads', () => {
